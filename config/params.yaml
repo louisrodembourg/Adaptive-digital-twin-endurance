@@ -1,0 +1,54 @@
+# ============================================================
+# DigitalTwin — Paramètres Centralisés
+# ============================================================
+# Objectif : Semi-Marathon en 1h18 (actuellement 1h22)
+
+athlete:
+  name: "Louis"
+  semi_record_s: 4920          # 1h22 en secondes
+  semi_target_s: 4680          # 1h18 en secondes
+  target_pace_min_km: 3.667    # 3'40"/km (= 1h18 sur 21.1km)
+  target_speed_ms: 4.545       # m/s correspondant à 3'40"/km
+  hr_max: 205                  # FC max estimée (à calibrer)
+  hr_rest: 65                  # FC repos (à calibrer)
+  weight_kg: 72                # Poids (pour TRIMP / charge)
+
+# --- Zones de Fréquence Cardiaque (% FC max) ---
+hr_zones:
+  z1_recovery: [0.50, 0.60]
+  z2_endurance: [0.60, 0.70]
+  z3_tempo: [0.70, 0.80]
+  z4_threshold: [0.80, 0.90]
+  z5_vo2max: [0.90, 1.00]
+
+# --- Signal Lab (Layer A) ---
+signal:
+  # Efficiency Factor : fenêtre autour de l'allure cible
+  ef_pace_tolerance_pct: 5     # ±5% autour de 3'40"/km
+  ef_min_duration_s: 60        # Minimum 60s à l'allure cible pour compter
+
+  # Cardiac Decoupling
+  decoupling_split_ratio: 0.5  # 1ère moitié vs 2nde moitié
+  decoupling_alert_pct: 5.0    # Seuil d'alerte : >5% = fatigue
+
+  # Seuils de nettoyage
+  hr_min_valid: 40             # FC < 40 = artefact
+  hr_max_valid: 210            # FC > 210 = artefact
+  speed_min_running_ms: 1.5    # < 1.5 m/s = marche, pas course
+
+  # TRIMP (Training Impulse)
+  trimp_gender_factor: 1.92    # Homme (femme = 1.67)
+  trimp_gender_exp: 0.64       # Homme (femme = 0.86)
+
+# --- Modèle Bayésien (Layer B) ---
+twin:
+  tau1_prior_days: 42          # Constante fitness (littérature : 40-50j)
+  tau2_prior_days: 12          # Constante fatigue (littérature : 10-15j)
+  k1_prior: 1.0               # Gain fitness
+  k2_prior: 2.0               # Gain fatigue (> k1)
+
+# --- Planner (Layer C) ---
+planner:
+  max_weekly_progression_pct: 10   # Règle des 10%
+  taper_start_days_before: 14     # J-14 avant la course
+  rmssd_vma_threshold: 0.0        # Placeholder (à calibrer avec les données HRV)
