@@ -3,7 +3,7 @@ Layer A — Signal Lab : Feature Engineering Physiologique
 Calcul des biomarqueurs à partir des données 1Hz nettoyées.
 
 Features implémentées :
-  - clean_signal()           : Nettoyage des artefacts (HR, vitesse)
+  - clean_signal()           : Nettoyage avancé des artefacts [→ v2 par défaut]
   - efficiency_factor()      : EF global = Vitesse / FC
   - specific_ef()            : EF spécifique à l'allure cible (3'40"/km)
   - cardiac_decoupling()     : Dérive cardiaque sur sortie longue
@@ -16,6 +16,13 @@ import pandas as pd
 import numpy as np
 import yaml
 from pathlib import Path
+
+# Import advanced cleaning (v2)
+try:
+    from .features_advanced import clean_signal_v2
+    HAS_ADVANCED = True
+except ImportError:
+    HAS_ADVANCED = False
 
 
 def load_params(config_path: str | Path | None = None) -> dict:
@@ -30,15 +37,46 @@ def load_params(config_path: str | Path | None = None) -> dict:
 #  1. NETTOYAGE DU SIGNAL
 # ═══════════════════════════════════════════════════════════════
 
-def clean_signal(df: pd.DataFrame, params: dict | None = None) -> pd.DataFrame:
+def clean_signal(df: pd.DataFrame, params: dict | None = None, version: str = 'v2') -> pd.DataFrame:
     """
-    Nettoie le DataFrame 1Hz :
-      - Supprime les FC aberrantes (< 40 ou > 210)
-      - Supprime les vitesses négatives
-      - Interpole les petits trous (< 5s)
-      - Filtre les premières secondes de warm-up GPS (speed=0)
-    
-    Retourne une copie nettoyée.
+    Nettoie le DataFrame 1Hz.
+
+    Parameters
+    ----------
+    df : DataFrame brut
+    params : configuration (si None, charge depuis params.yaml)
+    version : 'v2' (recommandé) ou 'v1' (basique, legacy)
+
+    Returns
+    -------
+    DataFrame nettoyé avec colonnes optionnelles de flagging (_flag_*)
+
+    Note
+    ----
+    v2 (par défaut) utilise Savitzky-Golay + z-score:
+      - Supprime les spikes optiques
+      - Lisse les courbes sans déphasage
+      - Ajoute des colonnes de flagging pour traçabilité
+
+    v1 (legacy) utilise juste bounds + interpolation linéaire
+    """
+    if params is None:
+        params = load_params()
+
+    # Utiliser v2 par défaut si disponible
+    if version == 'v2' and HAS_ADVANCED:
+        return clean_signal_v2(df, params, verbose=False)
+
+    # Fallback v1 (ancienne méthode basique)
+    return _clean_signal_v1_legacy(df, params)
+
+
+def _clean_signal_v1_legacy(df: pd.DataFrame, params: dict) -> pd.DataFrame:
+    """
+    [LEGACY] Nettoyage basique v1.
+    Gardé pour compatibilité backward, mais v2 est recommandé.
+
+    Supprime les FC aberrantes (< 40 ou > 210) et interpole.
     """
     if params is None:
         params = load_params()

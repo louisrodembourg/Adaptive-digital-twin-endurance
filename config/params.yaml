@@ -30,11 +30,25 @@ signal:
   # Cardiac Decoupling
   decoupling_split_ratio: 0.5  # 1ère moitié vs 2nde moitié
   decoupling_alert_pct: 5.0    # Seuil d'alerte : >5% = fatigue
+  decoupling_warmup_exclude_s: 180  # Exclure 3 min warm-up
 
-  # Seuils de nettoyage
+  # Seuils de nettoyage v1 (basique)
   hr_min_valid: 40             # FC < 40 = artefact
   hr_max_valid: 210            # FC > 210 = artefact
   speed_min_running_ms: 1.5    # < 1.5 m/s = marche, pas course
+
+  # Seuils de nettoyage v2 (avancé)
+  hr_jump_threshold_bpm: 5     # Δ|HR| > 5 bpm/s = anomalie
+  speed_max_running_ms: 10     # > 10 m/s (36 km/h) = GPS glitch
+  anomaly_window: 5            # Fenêtre for z-score (points)
+  anomaly_threshold: 3.0       # Z-score threshold (3σ = très strict)
+  interp_max_gap_s: 30         # Max gap à interpoler (30s)
+
+  # Savitzky-Golay smoothing
+  savgol_window_hr: 11         # Fenêtre lissage FC (doit être impair)
+  savgol_window_speed: 11      # Fenêtre lissage vitesse
+  savgol_window_cadence: 15    # Fenêtre lissage cadence
+  savgol_polyorder: 3          # Ordre polynomial (2-3 recommandé)
 
   # TRIMP (Training Impulse)
   trimp_gender_factor: 1.92    # Homme (femme = 1.67)
