@@ -7,6 +7,7 @@ from garmin_fit_sdk import Decoder, Stream
 import pandas as pd
 import numpy as np
 from pathlib import Path
+from datetime import datetime
 
 
 def parse_fit(filepath: str | Path) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -122,3 +123,149 @@ def get_session_summary(filepath: str | Path) -> dict:
         'sport':            s.get('sport'),
         'sub_sport':        s.get('sub_sport'),
     }
+
+
+def batch_ingest(directory: str | Path, verbose: bool = True) -> dict[str, dict]:
+    """
+    Ingère TOUS les fichiers .fit d'un dossier.
+
+    Parameters
+    ----------
+    directory : chemin vers le dossier contenant les fichiers .fit
+    verbose : affiche les logs d'ingestion
+
+    Returns
+    -------
+    dict avec structure :
+    {
+        'filename.fit': {
+            'records': pd.DataFrame,
+            'rr': pd.DataFrame,
+            'session_meta': dict,
+            'status': 'success' ou 'error',
+            'error_msg': str (si erreur)
+        },
+        ...
+    }
+    """
+    directory = Path(directory)
+    if not directory.is_dir():
+        raise ValueError(f"Directory not found: {directory}")
+
+    fit_files = sorted(directory.glob('*.fit'))
+    if not fit_files:
+        if verbose:
+            print(f"[batch_ingest] Aucun fichier .fit trouvé dans {directory}")
+        return {}
+
+    if verbose:
+        print(f"[batch_ingest] Trouvé {len(fit_files)} fichier(s) .fit")
+
+    results = {}
+
+    for fit_file in fit_files:
+        filename = fit_file.name
+        if verbose:
+            print(f"\n→ Ingestion {filename}...", end=" ")
+
+        try:
+            df_records, df_rr = parse_fit(fit_file)
+            session_meta = get_session_summary(fit_file)
+
+            results[filename] = {
+                'records': df_records,
+                'rr': df_rr,
+                'session_meta': session_meta,
+                'status': 'success',
+                'error_msg': None,
+            }
+
+            if verbose:
+                n_records = len(df_records)
+                n_rr = len(df_rr)
+                duration_s = session_meta.get('total_timer_time', 0)
+                distance_m = session_meta.get('total_distance', 0)
+                print(f"✓ ({n_records} records, {n_rr} RR, {duration_s}s, {distance_m}m)")
+
+        except Exception as e:
+            results[filename] = {
+                'records': pd.DataFrame(),
+                'rr': pd.DataFrame(),
+                'session_meta': {},
+                'status': 'error',
+                'error_msg': str(e),
+            }
+            if verbose:
+                print(f"✗ Erreur: {e}")
+
+    return results
+
+
+def export_to_parquet(
+    batch_results: dict[str, dict],
+    output_dir: str | Path,
+    verbose: bool = True
+) -> dict[str, Path]:
+    """
+    Exporte les DataFrames ingérés en fichiers Parquet.
+
+    Crée une structure :
+    - output_dir/records_YYYYMMDD_HHMMSS.parquet
+    - output_dir/rr_YYYYMMDD_HHMMSS.parquet
+
+    Parameters
+    ----------
+    batch_results : dict retourné par batch_ingest()
+    output_dir : dossier de destination
+    verbose : affiche les logs
+
+    Returns
+    -------
+    dict avec chemins des fichiers créés
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+    # Combiner tous les records et RR
+    all_records = []
+    all_rr = []
+
+    for filename, result in batch_results.items():
+        if result['status'] != 'success':
+            continue
+
+        df_rec = result['records'].copy()
+        df_rr = result['rr'].copy()
+
+        # Ajouter le source filename pour traçabilité
+        df_rec['_source_file'] = filename
+        if not df_rr.empty:
+            df_rr['_source_file'] = filename
+
+        all_records.append(df_rec)
+        if not df_rr.empty:
+            all_rr.append(df_rr)
+
+    paths = {}
+
+    # Export records
+    if all_records:
+        df_combined_rec = pd.concat(all_records, ignore_index=False)
+        records_path = output_dir / f'records_{timestamp}.parquet'
+        df_combined_rec.to_parquet(records_path, compression='snappy')
+        paths['records'] = records_path
+        if verbose:
+            print(f"✓ Records exportés: {records_path.name} ({len(df_combined_rec)} lignes)")
+
+    # Export RR
+    if all_rr:
+        df_combined_rr = pd.concat(all_rr, ignore_index=True)
+        rr_path = output_dir / f'rr_{timestamp}.parquet'
+        df_combined_rr.to_parquet(rr_path, compression='snappy')
+        paths['rr'] = rr_path
+        if verbose:
+            print(f"✓ RR exportés: {rr_path.name} ({len(df_combined_rr)} lignes)")
+
+    return paths

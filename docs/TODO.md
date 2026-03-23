@@ -27,7 +27,12 @@
 *Nettoyer le signal et coder les métriques clés.*
 *Localisation : `src/layer_a_signal/features.py`*
 
-- [x] Nettoyage du signal (`clean_signal()`) : artefacts FC, interpolation, filtrage marche/course
+- [x] Nettoyage du signal (`clean_signal()`) : artefacts FC hors bornes, interpolation, filtrage marche/course
+- [ ] **Nettoyage avancé du signal cardiaque :**
+  - [ ] Détection des sauts brusques de FC (ex: 150→80→152 en 2s = artefact optique/ceinture)
+  - [ ] Filtre médian glissant pour éliminer les spikes isolés
+  - [ ] Contrainte physiologique : variation max FC ~5-10 bpm/s
+  - [ ] Marquage (flag) des segments nettoyés pour traçabilité
 - [x] **Efficiency Factor global** : Vitesse / FC sur les segments de course
 - [x] **EF Spécifique ($EF_{spec}$)** : EF filtré à l'allure cible 3'40"/km ± 5%
 - [x] **Cardiac Decoupling** : dérive cardiaque 1ère vs 2nde moitié (seuil 5%)
