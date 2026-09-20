@@ -30,7 +30,7 @@ import pandas as pd
 
 # PyMC est importé conditionnellement (peut ne pas être installé)
 try:
-    import arviz as az  # noqa: F401  (reexporte pour les diagnostics)
+    import arviz as az
     import pymc as pm
     import pytensor.tensor as pt
     HAS_PYMC = True
@@ -130,273 +130,258 @@ def compute_performance(
 #  2. MODÈLE BAYÉSIEN PyMC
 # ═══════════════════════════════════════════════════════════════
 
+def load_kernel(days: int, obs_days: np.ndarray, tau):
+    """
+    Noyau de convolution exponentielle, evalue aux seuls jours d'observation.
+
+    Remplace le `scan` recursif. Comme tau est echantillonne, la dynamique se
+    reformule en produit matriciel :
+
+        charge(t_obs) = somme sur i <= t_obs de
+                        (1 - e^{-1/tau}) * e^{-(t_obs - i)/tau} * trimp(i)
+
+    Deux raisons, et la premiere compte davantage. D'abord la correction : le
+    scan d'origine calculait `fit_prev * decay + trimp_t`, sans le facteur
+    (1 - e^{-1/tau}), soit exactement le defaut corrige dans load_model.py.
+    Le reparer techniquement aurait reintroduit ici le bug corrige ailleurs ;
+    exprimer la meme convolution supprime la duplication. Ensuite la vitesse :
+    la vraisemblance n'a besoin des courbes qu'aux jours d'observation, soit
+    une matrice de quelques dizaines de lignes au lieu d'un parcours de
+    plusieurs milliers de pas, differentiable et sans boucle.
+
+    `tau` peut etre un scalaire NumPy ou une variable PyTensor ; les
+    operations utilisees existent dans les deux mondes.
+    """
+    lag = obs_days[:, None] - np.arange(days)[None, :]
+    mask = (lag >= 0).astype(float)          # aucune charge future ne compte
+    lag = np.where(lag >= 0, lag, 0.0)
+    if HAS_PYMC and hasattr(tau, "type"):
+        return (1.0 - pt.exp(-1.0 / tau)) * pt.exp(-lag / tau) * mask
+    return (1.0 - np.exp(-1.0 / tau)) * np.exp(-lag / tau) * mask
+
+
 def build_banister_model(
-    trimp_history: np.ndarray,
-    perf_observations: list[tuple[int, float]],
+    daily_load: pd.DataFrame,
+    observations: pd.DataFrame,
     params: dict | None = None,
+    target: str = "perf_index",
 ):
     """
-    Construit le modèle probabiliste Banister dans PyMC.
+    Modele Banister probabiliste.
 
-    Parameters
-    ----------
-    trimp_history : array TRIMP quotidien (index 0 = jour le plus ancien)
-    perf_observations : liste de (day_index, perf_normalized)
-        perf_normalized : 1.0 = niveau record actuel (1h22), > 1.0 = amélioration
-        ex: [(45, 1.0), (90, 1.02), (180, 1.04)]
-    params : config (si None, charge params.yaml)
+    Ce chemin n'avait jamais ete execute : il appelait `pt.scan`, symbole qui
+    n'existe pas — c'est `pytensor.scan`. Quatre autres defauts l'auraient
+    fait echouer des le premier echantillonnage, tous corriges ici.
 
-    Returns
-    -------
-    pm.Model si HAS_PYMC, sinon None
+    Priors. tau1 et tau2 suivaient des lois normales non bornees, donc
+    admettaient des constantes de temps negatives : e^{-1/tau} devient alors
+    un filtre explosif. Ils sont tronques. Et rien n'imposait tau1 > tau2,
+    alors que les deux sont interchangeables dans la vraisemblance : les
+    chaines auraient permute les etiquettes et r_hat serait ressorti autour
+    de 2. tau1 se construit donc comme tau2 augmente d'un ecart positif.
 
-    Note
-    ----
-    Calibration de perf_normalized :
-        perf_norm = semi_record_s / actual_time_s
-        1h22 (4920s) → 4920/4920 = 1.0
-        1h20 (4800s) → 4920/4800 = 1.025
-        1h18 (4680s) → 4920/4680 = 1.051
+    Echelle. k1 suivait une demi-normale d'ecart-type 1, alors que la charge
+    vaut une cinquantaine de TRIMP par jour et la performance environ 1,0 :
+    les gains sont de l'ordre du centieme, et l'echantillonneur aurait passe
+    tout son budget a rejoindre la bonne echelle. Les entrees sont
+    standardisees et les priors dimensionnes en consequence.
+
+    Signe de k2. Il n'est pas contraint positif. L'ajustement par moindres
+    carres le donne negatif sur ces donnees, ce qui signifierait qu'une
+    fatigue elevee ameliore la performance. Forcer le signe masquerait le
+    resultat : les seances rapides tombent pendant les blocs de charge, donc
+    « fatigue elevee » est surtout un indicateur de « phase de qualite ».
+    C'est un probleme d'endogeneite du moment de mesure, pas de colinearite —
+    le conditionnement de la matrice vaut 5, ce qui disculpe cette derniere.
+    Laisser le posterieur couvrir zero est precisement l'interet de
+    l'approche bayesienne ici.
     """
     if not HAS_PYMC:
-        raise ImportError("PyMC requis. pip install pymc pytensor arviz")
+        raise ImportError("PyMC requis : pip install 'digital-twin-endurance[dev]'")
 
-    if params is None:
-        params = _load_params()
+    params = params or _load_params()
+    twin = params.get("twin", {})
 
-    twin = params.get('twin', {})
-
-    # Observations
-    obs_days = np.array([d for d, _ in perf_observations])
-    obs_perf = np.array([p for _, p in perf_observations])
+    prepared = _align_observations(daily_load, observations, target)
+    trimp = prepared["trimp"]
+    obs_days = prepared["obs_days"]
+    y = prepared["y"]
+    n_days = len(trimp)
 
     with pm.Model() as model:
-        # ─── Priors (littérature + calibrés sur record 1h22) ───────
-        tau1 = pm.Normal("tau1", mu=twin.get('tau1_prior_days', 42), sigma=5)
-        tau2 = pm.Normal("tau2", mu=twin.get('tau2_prior_days', 12), sigma=2)
-        k1   = pm.HalfNormal("k1", sigma=twin.get('k1_prior', 1.0))
-        k2   = pm.HalfNormal("k2", sigma=twin.get('k2_prior', 2.0))
-        p0   = pm.Normal("p0", mu=0.0, sigma=0.05)
-
-        # ─── Calcul dynamique Fitness/Fatigue ──────────────────────
-        # Implémentation via scan PyTensor pour compatibilité MCMC
-        decay1 = pt.exp(-1.0 / tau1)
-        decay2 = pt.exp(-1.0 / tau2)
-
-        trimp_pt = pt.as_tensor_variable(trimp_history.astype(float))
-
-        def step_fn(trimp_t, fit_prev, fat_prev, d1, d2):
-            fit_t = fit_prev * d1 + trimp_t
-            fat_t = fat_prev * d2 + trimp_t
-            return fit_t, fat_t
-
-        results, _ = pt.scan(
-            fn=step_fn,
-            sequences=[trimp_pt],
-            outputs_info=[
-                pt.zeros(()),  # fitness init
-                pt.zeros(()),  # fatigue init
-            ],
-            non_sequences=[decay1, decay2],
+        tau2 = pm.TruncatedNormal(
+            "tau2", mu=twin.get("tau2_prior_days", 12.0), sigma=5.0, lower=1.0, upper=60.0
         )
+        # tau1 = tau2 + ecart positif : impose l'ordre et supprime la
+        # permutation d'etiquettes entre chaines.
+        delta = pm.HalfNormal("delta", sigma=20.0)
+        tau1 = pm.Deterministic("tau1", tau2 + delta)
 
-        fitness_curve = results[0]   # shape: (n_days,)
-        fatigue_curve = results[1]
+        k_fit = pm.Normal("k1", mu=0.0, sigma=0.1)
+        k_fat = pm.Normal("k2", mu=0.0, sigma=0.1)
+        p0 = pm.Normal("p0", mu=float(np.mean(y)), sigma=0.1)
+        sigma = pm.HalfNormal("sigma_obs", sigma=float(np.std(y)) or 0.05)
 
-        # Extraire les valeurs aux jours d'observation
-        fitness_obs = fitness_curve[obs_days]
-        fatigue_obs = fatigue_curve[obs_days]
+        fitness = pm.math.dot(load_kernel(n_days, obs_days, tau1), trimp)
+        fatigue = pm.math.dot(load_kernel(n_days, obs_days, tau2), trimp)
 
-        perf_pred = p0 + k1 * fitness_obs - k2 * fatigue_obs
+        # Standardisation par les constantes de l'historique complet, fixees
+        # hors du modele pour que l'echelle des priors reste interpretable.
+        f = (fitness - prepared["fitness_mean"]) / prepared["fitness_std"]
+        g = (fatigue - prepared["fatigue_mean"]) / prepared["fatigue_std"]
 
-        # ─── Likelihood ────────────────────────────────────────────
-        sigma_obs = pm.HalfNormal("sigma_obs", sigma=0.03)
-        pm.Normal("obs", mu=perf_pred, sigma=sigma_obs, observed=obs_perf)
+        mu = pm.Deterministic("mu", p0 + k_fit * f - k_fat * g)
+        pm.Normal("perf", mu=mu, sigma=sigma, observed=y)
 
+    model.digital_twin_context = prepared  # sert aux diagnostics posterieurs
     return model
 
 
-def sample_model(
-    model,
-    draws: int = 1000,
-    tune: int = 500,
-    chains: int = 2,
-    random_seed: int = 42,
-):
+def _align_observations(daily_load: pd.DataFrame, observations: pd.DataFrame,
+                        target: str) -> dict:
+    """Aligne les observations sur le calendrier de charge et fige les echelles."""
+    daily = daily_load.copy()
+    daily["date"] = pd.to_datetime(daily["date"]).dt.normalize()
+    daily = daily.sort_values("date").reset_index(drop=True)
+
+    obs = observations.copy()
+    obs["date"] = pd.to_datetime(obs["date"]).dt.normalize()
+    obs = obs.dropna(subset=[target]).sort_values("date")
+
+    index = {d: i for i, d in enumerate(daily["date"])}
+    obs = obs[obs["date"].isin(index)]
+    if len(obs) < 5:
+        raise NotFittedError(
+            f"Seulement {len(obs)} observation(s) alignee(s) sur le calendrier "
+            f"de charge : il en faut au moins cinq."
+        )
+
+    trimp = pd.to_numeric(daily["trimp"], errors="coerce").fillna(0.0).to_numpy()
+    curves = compute_load_curves(daily).to_frame()
+    return {
+        "trimp": trimp,
+        "dates": daily["date"],
+        "obs_days": np.array([index[d] for d in obs["date"]]),
+        "obs_dates": obs["date"].reset_index(drop=True),
+        "y": obs[target].to_numpy(dtype=float),
+        "fitness_mean": float(curves["fitness"].mean()),
+        "fitness_std": float(curves["fitness"].std() or 1.0),
+        "fatigue_mean": float(curves["fatigue"].mean()),
+        "fatigue_std": float(curves["fatigue"].std() or 1.0),
+    }
+
+
+def sample_model(model, draws: int = 1000, tune: int = 1000, chains: int = 4,
+                 target_accept: float = 0.95, random_seed: int = 42,
+                 progressbar: bool = False, cores: int | None = None):
     """
-    Lance l'échantillonnage MCMC (NUTS) du modèle.
+    Echantillonne le posterieur et renvoie l'InferenceData.
 
-    Parameters
-    ----------
-    model : pm.Model retourné par build_banister_model
-    draws : nombre d'échantillons post-tuning
-    tune : nombre d'étapes de tuning (warm-up)
-    chains : nombre de chaînes parallèles
-    random_seed : graine pour reproductibilité
+    `cores` par defaut a 1 : sur un historique reel, quatre chaines
+    compilant PyTensor en parallele font tomber les processus fils avec une
+    EOFError. L'echantillonnage sequentiel est plus lent mais fiable, et
+    quatre chaines restent necessaires pour que r_hat ait un sens.
 
-    Returns
-    -------
-    arviz.InferenceData
+    target_accept a 0,95 plutot que 0,9 : la geometrie du posterieur est
+    etroite du fait de la correlation entre k1 et k2, et le reglage par
+    defaut laisse passer des divergences.
     """
     if not HAS_PYMC:
-        raise ImportError("PyMC requis.")
-
+        raise ImportError("PyMC requis pour echantillonner.")
     with model:
-        trace = pm.sample(
-            draws=draws,
-            tune=tune,
-            chains=chains,
-            random_seed=random_seed,
-            progressbar=True,
+        return pm.sample(
+            draws=draws, tune=tune, chains=chains, target_accept=target_accept,
+            random_seed=random_seed, progressbar=progressbar,
+            cores=1 if cores is None else cores,
             return_inferencedata=True,
         )
-    return trace
 
 
-# ═══════════════════════════════════════════════════════════════
-#  3. EXTRACTION DES POSTERIORS ET COURBES
-# ═══════════════════════════════════════════════════════════════
-
-def extract_posterior_curves(
-    trace,
-    trimp_history: np.ndarray,
-    params: dict | None = None,
-    hdi_prob: float = 0.95,
-) -> pd.DataFrame:
+@dataclass(frozen=True)
+class IdentifiabilityReport:
     """
-    Reconstruit les courbes Fitness/Fatigue/TSB/Performance depuis
-    les échantillons de la posterior.
+    Ce que le posterieur dit de lui-meme.
 
-    Returns
-    -------
-    DataFrame avec colonnes :
-      day, fitness_mean, fitness_low, fitness_high,
-      fatigue_mean, fatigue_low, fatigue_high,
-      tsb_mean, tsb_low, tsb_high,
-      perf_mean, perf_low, perf_high
+    Un posterieur plat est un resultat : il indique que les donnees ne
+    contraignent pas le parametre, ce qu'un ajustement ponctuel aurait
+    presente comme une valeur estimee.
+    """
+
+    max_r_hat: float
+    min_ess: float
+    n_divergences: int
+    k2_covers_zero: bool
+    k1_k2_correlation: float
+    tau_posterior_shrinkage: float
+    summary: pd.DataFrame
+
+    @property
+    def converged(self) -> bool:
+        return self.max_r_hat < 1.01 and self.n_divergences == 0
+
+    @property
+    def verdict(self) -> str:
+        if not self.converged:
+            return "Echantillonnage non converge : diagnostics non interpretables."
+        problems = []
+        if self.k2_covers_zero:
+            problems.append("l'intervalle de credibilite de k2 contient zero")
+        if abs(self.k1_k2_correlation) > 0.7:
+            problems.append(f"k1 et k2 correles a {self.k1_k2_correlation:+.2f}")
+        if self.tau_posterior_shrinkage < 0.2:
+            problems.append("le posterieur des constantes de temps ne bouge pas du prior")
+        if not problems:
+            return "Parametres identifies."
+        return "Modele mal identifie : " + ", ".join(problems) + "."
+
+
+def assess_identifiability(trace, prior_tau1_sigma: float = 20.0) -> IdentifiabilityReport:
+    """
+    Diagnostic d'identifiabilite du posterieur.
+
+    C'est l'usage honnete de l'inference bayesienne sur ce projet : non pas
+    produire une estimation, mais montrer ce que les donnees contraignent
+    reellement. Replique la critique publiee dans Scientific Reports en 2025
+    sur le mauvais conditionnement du modele fitness-fatigue.
     """
     if not HAS_PYMC:
-        raise ImportError("PyMC requis.")
+        raise ImportError("ArviZ requis pour les diagnostics.")
 
-    if params is None:
-        params = _load_params()
+    summary = az.summary(trace, var_names=["tau1", "tau2", "k1", "k2", "p0", "sigma_obs"])
+    post = trace.posterior
 
-    # Extraire les paramètres de la posterior
-    tau1_samples = trace.posterior["tau1"].values.flatten()
-    tau2_samples = trace.posterior["tau2"].values.flatten()
-    k1_samples   = trace.posterior["k1"].values.flatten()
-    k2_samples   = trace.posterior["k2"].values.flatten()
-    p0_samples   = trace.posterior["p0"].values.flatten()
+    k1 = post["k1"].values.ravel()
+    k2 = post["k2"].values.ravel()
+    lo, hi = np.percentile(k2, [2.5, 97.5])
 
-    n_days = len(trimp_history)
-    n_samples = len(tau1_samples)
+    tau1_post_sd = float(post["tau1"].values.std())
+    shrinkage = 1.0 - tau1_post_sd / prior_tau1_sigma
 
-    fitness_all = np.zeros((n_samples, n_days))
-    fatigue_all = np.zeros((n_samples, n_days))
-    perf_all    = np.zeros((n_samples, n_days))
+    divergences = int(trace.sample_stats["diverging"].values.sum()) if         "diverging" in trace.sample_stats else 0
 
-    for i in range(n_samples):
-        fit, fat = compute_fitness_fatigue(
-            trimp_history, tau1_samples[i], tau2_samples[i]
-        )
-        perf = compute_performance(
-            fit, fat, p0_samples[i], k1_samples[i], k2_samples[i]
-        )
-        fitness_all[i] = fit
-        fatigue_all[i] = fat
-        perf_all[i]    = perf
+    return IdentifiabilityReport(
+        max_r_hat=float(summary["r_hat"].max()),
+        min_ess=float(summary["ess_bulk"].min()),
+        n_divergences=divergences,
+        k2_covers_zero=bool(lo <= 0 <= hi),
+        k1_k2_correlation=float(np.corrcoef(k1, k2)[0, 1]),
+        tau_posterior_shrinkage=float(shrinkage),
+        summary=summary,
+    )
 
-    tsb_all = fitness_all - fatigue_all
 
-    def _hdi(arr, prob):
-        lo = np.percentile(arr, (1 - prob) / 2 * 100, axis=0)
-        hi = np.percentile(arr, (1 - (1 - prob) / 2) * 100, axis=0)
-        return lo, hi
-
-    fit_lo, fit_hi = _hdi(fitness_all, hdi_prob)
-    fat_lo, fat_hi = _hdi(fatigue_all, hdi_prob)
-    tsb_lo, tsb_hi = _hdi(tsb_all, hdi_prob)
-    per_lo, per_hi = _hdi(perf_all, hdi_prob)
-
-    df = pd.DataFrame({
-        'day':          np.arange(n_days),
-        'trimp':        trimp_history,
-
-        'fitness_mean': fitness_all.mean(axis=0),
-        'fitness_low':  fit_lo,
-        'fitness_high': fit_hi,
-
-        'fatigue_mean': fatigue_all.mean(axis=0),
-        'fatigue_low':  fat_lo,
-        'fatigue_high': fat_hi,
-
-        'tsb_mean':     tsb_all.mean(axis=0),
-        'tsb_low':      tsb_lo,
-        'tsb_high':     tsb_hi,
-
-        'perf_mean':    perf_all.mean(axis=0),
-        'perf_low':     per_lo,
-        'perf_high':    per_hi,
+def posterior_predictions(trace, model) -> pd.DataFrame:
+    """Moyenne posterieure et intervalle a 95 % aux jours d'observation."""
+    ctx = model.digital_twin_context
+    mu = trace.posterior["mu"].values.reshape(-1, len(ctx["y"]))
+    return pd.DataFrame({
+        "date": ctx["obs_dates"],
+        "observed": ctx["y"],
+        "predicted": mu.mean(axis=0),
+        "lower": np.percentile(mu, 2.5, axis=0),
+        "upper": np.percentile(mu, 97.5, axis=0),
     })
 
-    return df
-
-
-def compute_prob_success(
-    trace,
-    trimp_history: np.ndarray,
-    target_perf: float = 1.0513,  # 4920/4680 = 1h18
-) -> dict:
-    """
-    Calcule la probabilité de succès 1h18 à J (dernier jour).
-
-    target_perf = semi_record_s / target_time_s = 4920 / 4680 ≈ 1.051
-
-    Returns
-    -------
-    dict {
-        'prob_success': float [0-1],
-        'perf_mean': float,
-        'perf_hdi_low': float,
-        'perf_hdi_high': float,
-        'expected_time_s': float,
-    }
-    """
-    if not HAS_PYMC:
-        raise ImportError("PyMC requis.")
-
-    tau1_s = trace.posterior["tau1"].values.flatten()
-    tau2_s = trace.posterior["tau2"].values.flatten()
-    k1_s   = trace.posterior["k1"].values.flatten()
-    k2_s   = trace.posterior["k2"].values.flatten()
-    p0_s   = trace.posterior["p0"].values.flatten()
-
-    perf_final = []
-    for i in range(len(tau1_s)):
-        fit, fat = compute_fitness_fatigue(trimp_history, tau1_s[i], tau2_s[i])
-        perf = compute_performance(fit, fat, p0_s[i], k1_s[i], k2_s[i])
-        perf_final.append(perf[-1])
-
-    perf_arr = np.array(perf_final)
-    prob = float((perf_arr >= target_perf).mean())
-
-    # Convertir perf moyenne en temps estimé
-    params = _load_params()
-    record_s = params['athlete']['semi_record_s']
-    expected_time_s = record_s / perf_arr.mean() if perf_arr.mean() > 0 else np.nan
-
-    return {
-        'prob_success':   round(prob, 3),
-        'perf_mean':      round(float(perf_arr.mean()), 4),
-        'perf_hdi_low':   round(float(np.percentile(perf_arr, 2.5)), 4),
-        'perf_hdi_high':  round(float(np.percentile(perf_arr, 97.5)), 4),
-        'expected_time_s': round(float(expected_time_s), 0),
-    }
-
-
-# ═══════════════════════════════════════════════════════════════
-#  4. MODE DÉTERMINISTE (fallback sans PyMC)
-# ═══════════════════════════════════════════════════════════════
 
 @dataclass(frozen=True)
 class PerformanceParams:

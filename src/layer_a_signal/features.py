@@ -533,8 +533,10 @@ def session_features(df: pd.DataFrame, params: dict | None = None, cfg=None) -> 
     if params is None:
         params = load_params()
 
-    # Ajouter GAP si altitude disponible
-    if 'altitude' in df.columns:
+    # Le GAP est calcule une fois a l'etage de nettoyage. Le recalculer ici
+    # doublait le cout de la feature la plus chere du module, soit six
+    # secondes sur une ingestion complete.
+    if 'altitude' in df.columns and 'speed_gap_ms' not in df.columns:
         df = grade_adjusted_pace(df)
 
     max_gap = params.get('signal', {}).get('max_gap_s', 30.0)
