@@ -25,6 +25,8 @@ import warnings
 from pathlib import Path
 from typing import Optional
 
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
 
@@ -44,6 +46,7 @@ except ImportError:
 
 
 from ..config import load_params as _shared_load_params
+from .load_model import compute_load_curves, exponential_load
 
 
 def _load_params(config_path: str | Path | None = None) -> dict:
@@ -63,11 +66,14 @@ def compute_fitness_fatigue(
     """
     Calcule les courbes Fitness et Fatigue par convolution exponentielle.
 
-    Fitness(t)  = Σᵢ₌₀ᵗ TRIMP(i) × exp(-(t-i)/τ₁)
-    Fatigue(t)  = Σᵢ₌₀ᵗ TRIMP(i) × exp(-(t-i)/τ₂)
+Moyennes mobiles exponentielles de la charge :
 
-    Implémentation vectorisée via filtrage IIR équivalent :
-      y[t] = TRIMP[t] + y[t-1] × exp(-1/τ)
+      y[t] = y[t-1] × exp(-1/τ) + (1 - exp(-1/τ)) × TRIMP[t]
+
+    Le facteur (1 - exp(-1/τ)) manquait. Sans lui la sortie est une somme
+    cumulee amortie, qui croit avec le volume au lieu de se stabiliser : elle
+    atteignait 4871 chez l'athlete du depot, d'ou une performance a 941,57 la
+    ou les consommateurs attendaient 1,0.
 
     Parameters
     ----------
@@ -79,23 +85,10 @@ def compute_fitness_fatigue(
     -------
     (fitness, fatigue) : deux arrays de même longueur que trimp_series
     """
-    n = len(trimp_series)
-    fitness = np.zeros(n)
-    fatigue = np.zeros(n)
-
-    decay1 = np.exp(-1.0 / tau1)
-    decay2 = np.exp(-1.0 / tau2)
-
-    for t in range(n):
-        load = trimp_series[t]
-        if t == 0:
-            fitness[t] = load
-            fatigue[t] = load
-        else:
-            fitness[t] = fitness[t-1] * decay1 + load
-            fatigue[t] = fatigue[t-1] * decay2 + load
-
-    return fitness, fatigue
+    return (
+        exponential_load(np.asarray(trimp_series, dtype=float), tau1),
+        exponential_load(np.asarray(trimp_series, dtype=float), tau2),
+    )
 
 
 def compute_performance(
@@ -107,39 +100,32 @@ def compute_performance(
     nonlinear: bool = True,
 ) -> np.ndarray:
     """
-    Calcule la performance estimée depuis les courbes Fitness/Fatigue.
+    Performance estimee depuis les courbes de charge.
 
-    Performance(t) = p₀ + k₁×Fitness(t) - k₂×Fatigue(t)
+        perf(t) = p0 + k1 × fitness(t) − k2 × fatigue(t)
 
-    Avec non-linéarité optionnelle :
-      - Si TSB < -30 → pénalité exponentielle (sur-entraînement)
-      - Si TSB > 25  → plateau (rendements décroissants)
+    Les entrees doivent etre standardisees et p0, k1, k2 estimes, jamais lus
+    dans un fichier de configuration : c'est la vraisemblance qui fixe
+    l'echelle, en confrontant le modele a des index de performance mesures.
+
+    La branche non lineaire d'origine a ete retiree. Elle multipliait le
+    resultat par une exponentielle des le franchissement de seuils de
+    fraicheur codes en dur, ce qui injectait trois constantes arbitraires
+    dans la vraisemblance et rendait le modele non identifiable.
 
     Parameters
     ----------
     fitness, fatigue : arrays de même longueur
-    p0 : performance baseline (valeur à charge nulle)
-    k1 : gain fitness (influence positive)
-    k2 : gain fatigue (influence négative, typiquement > k1)
-    nonlinear : activer les corrections non-linéaires
+    p0 : performance de base, a charge nulle
+    k1 : gain de fitness
+    k2 : gain de fatigue (typiquement superieur a k1)
+    nonlinear : conserve pour compatibilite d'appel, sans effet
 
     Returns
     -------
-    np.ndarray : performance normalisée (1.0 = niveau record actuel)
+    np.ndarray : performance dans l'unite des observations fournies au modele
     """
-    tsb = fitness - fatigue
-    perf = p0 + k1 * fitness - k2 * fatigue
-
-    if nonlinear:
-        # Pénalité sur-entraînement (TSB très négatif)
-        overreach_mask = tsb < -30
-        perf[overreach_mask] *= np.exp((tsb[overreach_mask] + 30) * 0.02)
-
-        # Plateau rendements décroissants (TSB très positif = désentraînement)
-        detrain_mask = tsb > 25
-        perf[detrain_mask] *= (1 - (tsb[detrain_mask] - 25) * 0.005).clip(0.85)
-
-    return perf
+    return p0 + k1 * np.asarray(fitness, dtype=float) - k2 * np.asarray(fatigue, dtype=float)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -416,36 +402,117 @@ def compute_prob_success(
 #  4. MODE DÉTERMINISTE (fallback sans PyMC)
 # ═══════════════════════════════════════════════════════════════
 
+@dataclass(frozen=True)
+class PerformanceParams:
+    """
+    Parametres du modele de performance, issus d'un ajustement.
+
+    Ils ne se lisent pas dans un fichier de configuration. Les anciens
+    k1_prior et k2_prior de params.yaml etaient des priors, utilises comme
+    s'ils etaient des valeurs ajustees : c'est ce qui produisait une
+    performance a 941,57 au lieu de 1,0. Un prior dit ce qu'on croit avant de
+    regarder les donnees, pas ce qu'elles montrent.
+    """
+
+    p0: float
+    k1: float
+    k2: float
+    fitness_mean: float
+    fitness_std: float
+    fatigue_mean: float
+    fatigue_std: float
+    tau1: float
+    tau2: float
+    n_observations: int
+    source: str = "least_squares"
+
+    def standardize(self, fitness: np.ndarray, fatigue: np.ndarray):
+        f = (np.asarray(fitness, float) - self.fitness_mean) / (self.fitness_std or 1.0)
+        g = (np.asarray(fatigue, float) - self.fatigue_mean) / (self.fatigue_std or 1.0)
+        return f, g
+
+    def predict(self, fitness: np.ndarray, fatigue: np.ndarray) -> np.ndarray:
+        f, g = self.standardize(fitness, fatigue)
+        return compute_performance(f, g, p0=self.p0, k1=self.k1, k2=self.k2)
+
+    def to_dict(self) -> dict:
+        return {k: getattr(self, k) for k in (
+            "p0", "k1", "k2", "fitness_mean", "fitness_std", "fatigue_mean",
+            "fatigue_std", "tau1", "tau2", "n_observations", "source")}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "PerformanceParams":
+        return cls(**{k: d[k] for k in (
+            "p0", "k1", "k2", "fitness_mean", "fitness_std", "fatigue_mean",
+            "fatigue_std", "tau1", "tau2", "n_observations")},
+            source=d.get("source", "least_squares"))
+
+
+class NotFittedError(RuntimeError):
+    """Le modele n'a pas encore ete ajuste sur des performances observees."""
+
+
+def fit_least_squares(
+    daily_load: pd.DataFrame,
+    observations: pd.DataFrame,
+    tau1: float = 42.0,
+    tau2: float = 12.0,
+) -> PerformanceParams:
+    """
+    Ajuste p0, k1 et k2 par moindres carres sur les index observes.
+
+    Sert de point de reference rapide et de repli explicite : l'echelle vient
+    des observations, jamais d'une constante de configuration.
+    """
+    curves = compute_load_curves(daily_load, tau1, tau2)
+    frame = curves.to_frame()
+
+    obs = observations.copy()
+    obs["date"] = pd.to_datetime(obs["date"]).dt.normalize()
+    merged = obs.merge(frame, on="date", how="inner").dropna(
+        subset=["perf_index", "fitness", "fatigue"])
+    if len(merged) < 5:
+        raise NotFittedError(
+            f"Seulement {len(merged)} observation(s) alignee(s) sur les courbes "
+            f"de charge : il en faut au moins cinq pour ajuster le modele."
+        )
+
+    f_mean, f_std = float(frame["fitness"].mean()), float(frame["fitness"].std() or 1.0)
+    g_mean, g_std = float(frame["fatigue"].mean()), float(frame["fatigue"].std() or 1.0)
+    f = (merged["fitness"].to_numpy() - f_mean) / f_std
+    g = (merged["fatigue"].to_numpy() - g_mean) / g_std
+
+    design = np.column_stack([np.ones(len(f)), f, -g])
+    coeffs, *_ = np.linalg.lstsq(design, merged["perf_index"].to_numpy(), rcond=None)
+    p0, k1, k2 = (float(c) for c in coeffs)
+
+    return PerformanceParams(
+        p0=p0, k1=k1, k2=k2,
+        fitness_mean=f_mean, fitness_std=f_std,
+        fatigue_mean=g_mean, fatigue_std=g_std,
+        tau1=tau1, tau2=tau2, n_observations=len(merged),
+    )
+
+
 def run_deterministic(
-    trimp_history: np.ndarray,
-    params: dict | None = None,
+    daily_load: pd.DataFrame,
+    fitted: PerformanceParams,
 ) -> pd.DataFrame:
     """
-    Version déterministe du modèle Banister (sans incertitude).
-    Utilisé quand PyMC n'est pas disponible ou pour les tests rapides.
+    Courbes de charge et performance predite, sans quantification d'incertitude.
 
-    Returns
-    -------
-    DataFrame avec colonnes day, trimp, fitness, fatigue, tsb, perf_norm
+    Exige un ajustement prealable et refuse de tourner sans. La version
+    precedente prenait les priors du YAML pour des valeurs ajustees et
+    produisait des nombres sans unite ni sens ; un repli silencieux sur des
+    constantes est pire qu'une erreur, parce qu'il remplit un tableau de bord.
     """
-    if params is None:
-        params = _load_params()
+    if fitted is None:
+        raise NotFittedError(
+            "Aucun ajustement disponible. Lancer `python -m src.cli fit` pour "
+            "estimer p0, k1 et k2 sur des performances observees."
+        )
 
-    twin = params.get('twin', {})
-    tau1 = twin.get('tau1_prior_days', 42.0)
-    tau2 = twin.get('tau2_prior_days', 12.0)
-    k1   = twin.get('k1_prior', 1.0)
-    k2   = twin.get('k2_prior', 2.0)
-
-    fitness, fatigue = compute_fitness_fatigue(trimp_history, tau1, tau2)
-    perf = compute_performance(fitness, fatigue, p0=0.0, k1=k1, k2=k2)
-    tsb = fitness - fatigue
-
-    return pd.DataFrame({
-        'day':      np.arange(len(trimp_history)),
-        'trimp':    trimp_history,
-        'fitness':  np.round(fitness, 2),
-        'fatigue':  np.round(fatigue, 2),
-        'tsb':      np.round(tsb, 2),
-        'perf_norm': np.round(perf, 4),
-    })
+    curves = compute_load_curves(daily_load, fitted.tau1, fitted.tau2)
+    out = curves.to_frame()
+    out["perf_index"] = fitted.predict(curves.fitness, curves.fatigue)
+    return out
