@@ -27,7 +27,6 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-import yaml
 
 # PyMC est importé conditionnellement (peut ne pas être installé)
 try:
@@ -44,11 +43,12 @@ except ImportError:
     )
 
 
-def _load_params(config_path: Path | None = None) -> dict:
-    if config_path is None:
-        config_path = Path(__file__).parents[2] / 'config' / 'params.yaml'
-    with open(config_path) as f:
-        return yaml.safe_load(f)
+from ..config import load_params as _shared_load_params
+
+
+def _load_params(config_path: str | Path | None = None) -> dict:
+    """Parametres bruts — delegue au chargeur unique et mis en cache."""
+    return _shared_load_params(config_path)
 
 
 # ═══════════════════════════════════════════════════════════════

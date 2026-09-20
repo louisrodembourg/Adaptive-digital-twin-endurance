@@ -18,7 +18,6 @@ Features implémentées :
 
 import pandas as pd
 import numpy as np
-import yaml
 from pathlib import Path
 
 # Import advanced cleaning (v2) and HRV tools
@@ -29,12 +28,12 @@ except ImportError:
     HAS_ADVANCED = False
 
 
+from ..config import load_config, load_params as _shared_load_params
+
+
 def load_params(config_path: str | Path | None = None) -> dict:
-    """Charge les paramètres depuis params.yaml."""
-    if config_path is None:
-        config_path = Path(__file__).parents[2] / 'config' / 'params.yaml'
-    with open(config_path) as f:
-        return yaml.safe_load(f)
+    """Parametres bruts — delegue au chargeur unique et mis en cache."""
+    return _shared_load_params(config_path)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -161,7 +160,7 @@ def specific_ef(df: pd.DataFrame, params: dict | None = None) -> float:
     if params is None:
         params = load_params()
     
-    target_speed = params['athlete']['target_speed_ms']       # 4.545 m/s
+    target_speed = load_config().goal.target_speed_ms
     tolerance = params['signal']['ef_pace_tolerance_pct'] / 100  # 0.05
     min_duration = params['signal']['ef_min_duration_s']       # 60s
     
@@ -250,7 +249,7 @@ def specific_ef_gap(df: pd.DataFrame, params: dict | None = None) -> float:
     if params is None:
         params = load_params()
 
-    target_speed = params['athlete']['target_speed_ms']
+    target_speed = load_config().goal.target_speed_ms
     tolerance = params['signal']['ef_pace_tolerance_pct'] / 100
     min_duration = params['signal']['ef_min_duration_s']
 
@@ -340,10 +339,13 @@ def compute_trimp(df: pd.DataFrame, params: dict | None = None) -> float:
     if params is None:
         params = load_params()
     
-    hr_max = params['athlete']['hr_max']
-    hr_rest = params['athlete']['hr_rest']
-    gender_factor = params['signal']['trimp_gender_exp']     # 0.64
-    gender_exp = params['signal']['trimp_gender_factor']      # 1.92
+    cfg = load_config()
+    hr_max = cfg.athlete.hr_max
+    hr_rest = cfg.athlete.hr_rest
+    # (b, c) derives du sexe : TRIMP = duree_min * dHR * b * exp(c * dHR).
+    # Les deux coefficients viennent d'une seule source pour qu'ils ne
+    # puissent plus etre intervertis independamment.
+    gender_factor, gender_exp = cfg.athlete.trimp_coeffs
     
     if 'hr' not in df.columns:
         return np.nan
@@ -377,7 +379,7 @@ def compute_hr_zones(df: pd.DataFrame, params: dict | None = None) -> dict:
     if params is None:
         params = load_params()
     
-    hr_max = params['athlete']['hr_max']
+    hr_max = load_config().athlete.hr_max
     zones_cfg = params['hr_zones']
     
     if 'hr' not in df.columns:

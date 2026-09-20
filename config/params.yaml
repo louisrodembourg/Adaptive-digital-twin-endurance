@@ -1,68 +1,128 @@
 # ============================================================
-# DigitalTwin — Paramètres Centralisés
+# DigitalTwin — Parametres centralises
 # ============================================================
-# Objectif : Semi-Marathon en 1h18 (actuellement 1h22)
+# Toutes les valeurs specifiques a un athlete vivent ici.
+# Le code ne contient aucune constante physiologique en dur.
+#
+# Les champs a `null` sont remplis par `python -m src.cli calibrate`,
+# qui les estime depuis l'historique reel de l'athlete.
 
+# --- Source de donnees ---------------------------------------
+data_source:
+  kind: opendata_osf              # opendata_osf | fit_dir | local_zip
+  osf_node: "6hfpz"               # GoldenCheetah OpenData, DOI 10.17605/OSF.IO/6HFPZ
+  athlete_ref: null               # UUID de l'athlete retenu (voir opendata_manifest.json)
+  manifest: "config/opendata_manifest.json"
+  fit_dir: "data/raw"             # utilise seulement si kind == fit_dir
+
+# --- Athlete --------------------------------------------------
 athlete:
-  name: "Louis"
-  semi_record_s: 4920          # 1h22 en secondes
-  semi_target_s: 4680          # 1h18 en secondes
-  target_pace_min_km: 3.667    # 3'40"/km (= 1h18 sur 21.1km)
-  target_speed_ms: 4.545       # m/s correspondant à 3'40"/km
-  hr_max: 205                  # FC max estimée (à calibrer)
-  hr_rest: 65                  # FC repos (à calibrer)
-  weight_kg: 72                # Poids (pour TRIMP / charge)
+  id: null
+  display_name: null
+  sex: male                       # male | female -> constantes TRIMP derivees
+  hr_max: null                    # bpm, estime au 99e percentile a la calibration
+  hr_rest: null                   # bpm, estime au 1er percentile
+  weight_kg: null
 
-# --- Zones de Fréquence Cardiaque (% FC max) ---
+# --- Objectif -------------------------------------------------
+# Generique : n'importe quelle distance, n'importe quel chrono.
+goal:
+  event: half_marathon
+  distance_m: 21097.5
+  reference_time_s: null          # null -> meilleur temps de l'athlete (courbe de reference)
+  target_time_s: null             # null -> derive de improvement_pct
+  improvement_pct: 5.0
+  race_date: null
+
+# --- Zones de frequence cardiaque (% FCmax) -------------------
 hr_zones:
-  z1_recovery: [0.50, 0.60]
+  z1_recovery:  [0.50, 0.60]
   z2_endurance: [0.60, 0.70]
-  z3_tempo: [0.70, 0.80]
+  z3_tempo:     [0.70, 0.80]
   z4_threshold: [0.80, 0.90]
-  z5_vo2max: [0.90, 1.00]
+  z5_vo2max:    [0.90, 1.00]
 
-# --- Signal Lab (Layer A) ---
+# --- Layer A : traitement du signal ---------------------------
 signal:
-  # Efficiency Factor : fenêtre autour de l'allure cible
-  ef_pace_tolerance_pct: 5     # ±5% autour de 3'40"/km
-  ef_min_duration_s: 60        # Minimum 60s à l'allure cible pour compter
+  # Echantillonnage : les series ne sont pas garanties a 1 Hz sans trou.
+  max_gap_s: 30                   # au-dela, le temps n'est pas compte comme actif
 
-  # Cardiac Decoupling
-  decoupling_split_ratio: 0.5  # 1ère moitié vs 2nde moitié
-  decoupling_alert_pct: 5.0    # Seuil d'alerte : >5% = fatigue
-  decoupling_warmup_exclude_s: 180  # Exclure 3 min warm-up
+  # Efficiency Factor specifique
+  ef_pace_tolerance_pct: 5        # fenetre autour de l'allure cible
+  ef_min_duration_s: 60           # duree contigue minimale a l'allure cible
 
-  # Seuils de nettoyage v1 (basique)
-  hr_min_valid: 40             # FC < 40 = artefact
-  hr_max_valid: 210            # FC > 210 = artefact
-  speed_min_running_ms: 1.5    # < 1.5 m/s = marche, pas course
+  # Decouplage cardiaque
+  decoupling_split_ratio: 0.5
+  decoupling_alert_pct: 5.0
+  decoupling_forced_rest_pct: 10.0
+  decoupling_warmup_exclude_s: 180
 
-  # Seuils de nettoyage v2 (avancé)
-  hr_jump_threshold_bpm: 5     # Δ|HR| > 5 bpm/s = anomalie
-  speed_max_running_ms: 10     # > 10 m/s (36 km/h) = GPS glitch
-  anomaly_window: 5            # Fenêtre for z-score (points)
-  anomaly_threshold: 3.0       # Z-score threshold (3σ = très strict)
-  interp_max_gap_s: 30         # Max gap à interpoler (30s)
+  # Bornes physiologiques
+  hr_min_valid: 40
+  hr_max_valid: 210
+  speed_min_running_ms: 1.5
+  speed_max_running_ms: 10.0
 
-  # Savitzky-Golay smoothing
-  savgol_window_hr: 11         # Fenêtre lissage FC (doit être impair)
-  savgol_window_speed: 11      # Fenêtre lissage vitesse
-  savgol_window_cadence: 15    # Fenêtre lissage cadence
-  savgol_polyorder: 3          # Ordre polynomial (2-3 recommandé)
+  # Detection d'anomalies
+  hr_jump_threshold_bpm: 5        # variation max plausible, bpm/s
+  anomaly_window: 5
+  anomaly_threshold: 3.0
+  interp_max_gap_s: 30
 
-  # TRIMP (Training Impulse)
-  trimp_gender_factor: 1.92    # Homme (femme = 1.67)
-  trimp_gender_exp: 0.64       # Homme (femme = 0.86)
+  # Lissage Savitzky-Golay
+  savgol_window_hr: 11            # doit etre impair
+  savgol_window_speed: 11
+  savgol_window_cadence: 15
+  savgol_polyorder: 3
 
-# --- Modèle Bayésien (Layer B) ---
+  # Grade Adjusted Pace — coefficients de Daniels, PAR POINT DE POURCENTAGE
+  gap_coef_uphill_per_pct: 0.033
+  gap_coef_downhill_per_pct: 0.018
+  gap_max_grade_pct: 25.0
+
+# --- Layer A : index de performance ---------------------------
+performance:
+  mmp_durations_s: [300, 600, 1200, 1800, 2700, 3600]
+  min_duration_s: 300             # aucune observation sous 5 min
+  min_index: 0.90                 # en deca, l'effort n'est pas assez maximal
+  min_hr_frac_of_max: 0.90        # corroboration cardiaque
+  max_elevation_gain_m_per_km: 15 # au-dela, on exige la vitesse corrigee GAP
+  min_hr_coverage: 0.90
+
+# --- Layer B : jumeau numerique -------------------------------
 twin:
-  tau1_prior_days: 42          # Constante fitness (littérature : 40-50j)
-  tau2_prior_days: 12          # Constante fatigue (littérature : 10-15j)
-  k1_prior: 1.0               # Gain fitness
-  k2_prior: 2.0               # Gain fatigue (> k1)
+  tau1_prior_days: 42             # constante de temps fitness (litterature : 40-50 j)
+  tau2_prior_days: 12             # constante de temps fatigue (litterature : 10-15 j)
+  tsb_overreach_pct: 5            # percentiles propres a l'athlete, ecrits a la calibration
+  tsb_detrain_pct: 95
+  calibration_perf_hdi_threshold: 0.04   # largeur HDI sur l'index de perf (~ +/-2 %)
+  calibration_max_days_since_obs: 28
 
-# --- Planner (Layer C) ---
+  mcmc:
+    draws: 1000
+    tune: 1000
+    chains: 4
+    target_accept: 0.9
+    random_seed: 42
+
+# --- Layer C : planificateur ----------------------------------
 planner:
-  max_weekly_progression_pct: 10   # Règle des 10%
-  taper_start_days_before: 14     # J-14 avant la course
-  rmssd_vma_threshold: 0.0        # Placeholder (à calibrer avec les données HRV)
+  max_weekly_progression_pct: 10
+  taper_start_days_before: 14
+  max_high_intensity_per_week: 2
+  acwr_upper_bound: 1.5           # ratio charge aigue 7 j / chronique 28 j
+
+  hrv:
+    enabled: false                # aucune source RR dans OpenData ni dans les .fit
+    rmssd_threshold_ms: 50        # seule source de verite pour ce seuil
+
+  llm:
+    provider: none                # none | anthropic | openai
+    model: null                   # null -> defaut de l'adaptateur
+
+# --- Chemins --------------------------------------------------
+paths:
+  raw: "data/raw"
+  processed: "data/processed"
+  cache: "data/cache"
+  traces: "data/processed/traces"

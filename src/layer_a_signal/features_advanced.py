@@ -15,18 +15,17 @@ Features:
 
 import pandas as pd
 import numpy as np
-import yaml
 from pathlib import Path
 from scipy import signal as scipy_signal
 from scipy import stats as scipy_stats
 
 
+from ..config import load_params as _shared_load_params
+
+
 def load_params(config_path: str | Path | None = None) -> dict:
-    """Charge les paramètres depuis params.yaml."""
-    if config_path is None:
-        config_path = Path(__file__).parents[2] / 'config' / 'params.yaml'
-    with open(config_path) as f:
-        return yaml.safe_load(f)
+    """Parametres bruts — delegue au chargeur unique et mis en cache."""
+    return _shared_load_params(config_path)
 
 
 # ═══════════════════════════════════════════════════════════════
