@@ -22,13 +22,14 @@ from pathlib import Path
 
 # Import advanced cleaning (v2) and HRV tools
 try:
-    from .features_advanced import clean_signal_v2, generate_mock_rr, dfa_alpha1_from_rr
+    from .features_advanced import clean_signal_v2, dfa_alpha1_from_rr
     HAS_ADVANCED = True
 except ImportError:
     HAS_ADVANCED = False
 
 
 from ..config import load_config, load_params as _shared_load_params
+from .timebase import active_duration_s, attach_timebase, dt_seconds, longest_contiguous_s
 
 
 def load_params(config_path: str | Path | None = None) -> dict:
@@ -40,7 +41,8 @@ def load_params(config_path: str | Path | None = None) -> dict:
 #  1. NETTOYAGE DU SIGNAL
 # ═══════════════════════════════════════════════════════════════
 
-def clean_signal(df: pd.DataFrame, params: dict | None = None, version: str = 'v2') -> pd.DataFrame:
+def clean_signal(df: pd.DataFrame, params: dict | None = None,
+                 version: str = 'v2') -> pd.DataFrame:
     """
     Nettoie le DataFrame 1Hz.
 
@@ -48,7 +50,7 @@ def clean_signal(df: pd.DataFrame, params: dict | None = None, version: str = 'v
     ----------
     df : DataFrame brut
     params : configuration (si None, charge depuis params.yaml)
-    version : 'v2' (recommandé) ou 'v1' (basique, legacy)
+    version : conserve pour compatibilite d'appel ; seul 'v2' existe desormais
 
     Returns
     -------
@@ -56,62 +58,20 @@ def clean_signal(df: pd.DataFrame, params: dict | None = None, version: str = 'v
 
     Note
     ----
-    v2 (par défaut) utilise Savitzky-Golay + z-score:
-      - Supprime les spikes optiques
-      - Lisse les courbes sans déphasage
-      - Ajoute des colonnes de flagging pour traçabilité
+    Savitzky-Golay plus detection d'anomalies par z-score : les pics optiques
+    partent, les gradients physiologiques restent, et des colonnes `_flag_*`
+    tracent ce qui a ete touche.
 
-    v1 (legacy) utilise juste bounds + interpolation linéaire
+    La base de temps (`dt_s`) est attachee ici, une fois, pour que toutes les
+    metriques en aval raisonnent en secondes reelles plutot qu'en lignes.
     """
     if params is None:
         params = load_params()
+    if not HAS_ADVANCED:
+        raise ImportError("features_advanced est requis pour le nettoyage du signal.")
 
-    # Utiliser v2 par défaut si disponible
-    if version == 'v2' and HAS_ADVANCED:
-        return clean_signal_v2(df, params, verbose=False)
-
-    # Fallback v1 (ancienne méthode basique)
-    return _clean_signal_v1_legacy(df, params)
-
-
-def _clean_signal_v1_legacy(df: pd.DataFrame, params: dict) -> pd.DataFrame:
-    """
-    [LEGACY] Nettoyage basique v1.
-    Gardé pour compatibilité backward, mais v2 est recommandé.
-
-    Supprime les FC aberrantes (< 40 ou > 210) et interpole.
-    """
-    if params is None:
-        params = load_params()
-    
-    sig = params.get('signal', {})
-    hr_min = sig.get('hr_min_valid', 40)
-    hr_max = sig.get('hr_max_valid', 210)
-    
-    df = df.copy()
-    
-    # Artefacts FC
-    if 'hr' in df.columns:
-        df.loc[(df['hr'] < hr_min) | (df['hr'] > hr_max), 'hr'] = np.nan
-    
-    # Vitesse négative ou aberrante
-    if 'speed_ms' in df.columns:
-        df.loc[df['speed_ms'] < 0, 'speed_ms'] = np.nan
-        # Recalculer les dérivées
-        df['speed_kmh'] = df['speed_ms'] * 3.6
-        df['pace_min_km'] = np.where(
-            df['speed_ms'] > 0.5,
-            1000 / (df['speed_ms'] * 60),
-            np.nan
-        )
-    
-    # Interpolation linéaire des petits trous (max 5 points consécutifs)
-    cols_to_interp = ['hr', 'speed_ms', 'power', 'cadence', 'altitude']
-    for col in cols_to_interp:
-        if col in df.columns:
-            df[col] = df[col].interpolate(method='linear', limit=5)
-    
-    return df
+    cleaned = clean_signal_v2(df, params, verbose=False)
+    return attach_timebase(cleaned, params.get('signal', {}).get('max_gap_s', 30.0))
 
 
 def get_running_mask(df: pd.DataFrame, params: dict | None = None) -> pd.Series:
@@ -178,12 +138,21 @@ def specific_ef(df: pd.DataFrame, params: dict | None = None) -> float:
         (df['speed_ms'].notna())
     )
     
+    dt = dt_seconds(df, params.get('signal', {}).get('max_gap_s', 30.0))
+
+    # Le seuil porte sur la plus longue tenue continue a l'allure cible, pas
+    # sur un total d'echantillons : soixante secondes eparpillees sur une
+    # heure et demie ne demontrent pas la meme chose qu'une minute soutenue,
+    # et c'est precisement la capacite a tenir que cette metrique mesure.
+    if longest_contiguous_s(mask, dt) < min_duration:
+        return np.nan
+
     df_target = df.loc[mask]
-
-    if len(df_target) < min_duration:
-        return np.nan  # Pas assez de données à cette allure
-
-    return df_target['speed_ms'].mean() / df_target['hr'].mean()
+    w = dt.loc[mask]
+    if w.sum() <= 0:
+        return np.nan
+    hr = float(np.average(df_target['hr'], weights=w))
+    return float(np.average(df_target['speed_ms'], weights=w)) / hr if hr else np.nan
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -216,20 +185,30 @@ def grade_adjusted_pace(df: pd.DataFrame) -> pd.DataFrame:
         df['speed_gap_ms'] = df.get('speed_ms', np.nan)
         return df
 
-    # Grade = pente en m/m (Δalt / distance parcourue en 1s)
+    cfg = load_config()
+    sig = cfg.signal
+    max_grade_pct = sig.get('gap_max_grade_pct', 25.0)
+    coef_up = sig.get('gap_coef_uphill_per_pct', 0.033)
+    coef_down = sig.get('gap_coef_downhill_per_pct', 0.018)
+
+    # Distance parcourue par echantillon : vitesse x pas de temps reel.
+    # L'ancienne version supposait 1 Hz, ce qui gonflait artificiellement la
+    # pente des que la serie comportait un trou.
+    dt = dt_seconds(df, sig.get('max_gap_s', 30.0))
     d_alt = df['altitude'].diff().fillna(0)
-    # À 1Hz : distance ≈ speed_ms * 1s
-    speed_safe = df['speed_ms'].clip(lower=0.1)
-    grade = d_alt / speed_safe
+    distance = (df['speed_ms'].clip(lower=0.1) * dt).clip(lower=0.1)
 
-    # Limiter les pentes aberrantes (capteur GPS bruité)
-    grade = grade.clip(-0.30, 0.30)
+    # Pente EN POURCENTS. Les coefficients de Daniels s'appliquent par point
+    # de pourcentage : les utiliser sur une pente exprimee en fraction
+    # sous-corrigeait d'un facteur cent, et rendait le GAP indiscernable de
+    # la vitesse brute.
+    grade_pct = (d_alt / distance) * 100.0
+    grade_pct = grade_pct.clip(-max_grade_pct, max_grade_pct)
 
-    # Facteur GAP
     gap_factor = np.where(
-        grade >= 0,
-        1 + grade * 0.033,   # montée : coût énergétique ↑
-        1 + grade * 0.018    # descente : récupération partielle
+        grade_pct >= 0,
+        1 + grade_pct * coef_up,     # montee : cout energetique superieur
+        1 + grade_pct * coef_down,   # descente : allegement partiel
     )
 
     df['speed_gap_ms'] = df['speed_ms'] * gap_factor
@@ -267,10 +246,16 @@ def specific_ef_gap(df: pd.DataFrame, params: dict | None = None) -> float:
     )
     df_target = df.loc[mask]
 
-    if len(df_target) < min_duration:
+    dt = dt_seconds(df, params.get('signal', {}).get('max_gap_s', 30.0))
+    if longest_contiguous_s(mask, dt) < min_duration:
         return np.nan
 
-    return df_target['speed_gap_ms'].mean() / df_target['hr'].mean()
+    df_target = df.loc[mask]
+    w = dt.loc[mask]
+    if w.sum() <= 0:
+        return np.nan
+    hr = float(np.average(df_target['hr'], weights=w))
+    return float(np.average(df_target['speed_gap_ms'], weights=w)) / hr if hr else np.nan
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -296,30 +281,51 @@ def cardiac_decoupling(df: pd.DataFrame, params: dict | None = None) -> float:
         params = load_params()
 
     sig = params.get('signal', {})
+    max_gap = sig.get('max_gap_s', 30.0)
     mask = get_running_mask(df, params)
-    df_run = df.loc[mask].dropna(subset=['speed_ms', 'hr']).reset_index(drop=True)
 
-    # Exclure le warm-up initial (3 min = 180 lignes à 1Hz)
+    work = df.assign(**{'dt_s': dt_seconds(df, max_gap)})
+    df_run = work.loc[mask].dropna(subset=['speed_ms', 'hr']).reset_index(drop=True)
+    if df_run.empty:
+        return np.nan
+
+    # Le decoupage se fait sur le temps ecoule, pas sur le numero de ligne :
+    # une pause de dix minutes deplacerait sinon la mi-course.
+    elapsed = df_run['dt_s'].cumsum()
+    total_s = float(elapsed.iloc[-1])
+
     warmup_s = sig.get('decoupling_warmup_exclude_s', 180)
-    if len(df_run) > warmup_s:
-        df_run = df_run.iloc[warmup_s:]
+    if total_s > warmup_s:
+        df_run = df_run.loc[elapsed > warmup_s].reset_index(drop=True)
+        elapsed = df_run['dt_s'].cumsum()
+        total_s = float(elapsed.iloc[-1]) if len(df_run) else 0.0
 
-    if len(df_run) < 120:  # Minimum 2 min après warm-up
+    if total_s < 120:  # moins de deux minutes utiles apres echauffement
         return np.nan
 
     split = sig.get('decoupling_split_ratio', 0.5)
-    mid = int(len(df_run) * split)
+    cut = total_s * split
+    first_half = df_run.loc[elapsed <= cut]
+    second_half = df_run.loc[elapsed > cut]
+    if first_half.empty or second_half.empty:
+        return np.nan
 
-    first_half = df_run.iloc[:mid]
-    second_half = df_run.iloc[mid:]
-
-    ef_1 = first_half['speed_ms'].mean() / first_half['hr'].mean()
-    ef_2 = second_half['speed_ms'].mean() / second_half['hr'].mean()
-
-    if ef_1 == 0:
+    ef_1 = _weighted_ef(first_half)
+    ef_2 = _weighted_ef(second_half)
+    if not ef_1:
         return np.nan
 
     return (ef_1 - ef_2) / ef_1 * 100
+
+
+def _weighted_ef(part: pd.DataFrame) -> float:
+    """EF moyen d'un segment, chaque echantillon pesant sa propre duree."""
+    w = part['dt_s']
+    if w.sum() <= 0:
+        return 0.0
+    speed = float(np.average(part['speed_ms'], weights=w))
+    hr = float(np.average(part['hr'], weights=w))
+    return speed / hr if hr else 0.0
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -354,14 +360,16 @@ def compute_trimp(df: pd.DataFrame, params: dict | None = None) -> float:
     if hr_series.empty:
         return 0.0
     
-    # ΔHR_ratio pour chaque seconde
-    delta_hr = (hr_series - hr_rest) / (hr_max - hr_rest)
-    delta_hr = delta_hr.clip(0, 1)  # Bornage [0, 1]
-    
-    # TRIMP = Σ (durée_min × delta × b × e^(c × delta))
-    trimp = (1/60) * delta_hr * gender_factor * np.exp(gender_exp * delta_hr)
-    
-    return trimp.sum()
+    delta_hr = ((hr_series - hr_rest) / (hr_max - hr_rest)).clip(0, 1)
+
+    # Chaque echantillon pese sa duree reelle. L'ancienne version comptait
+    # 1/60 de minute par ligne, ce qui revient a supposer un echantillonnage
+    # a 1 Hz sans trou et sous-estime la charge des que ce n'est pas le cas.
+    dt_min = dt_seconds(df, cfg.signal.get('max_gap_s', 30.0)).reindex(
+        hr_series.index).fillna(0.0) / 60.0
+
+    trimp = dt_min * delta_hr * gender_factor * np.exp(gender_exp * delta_hr)
+    return float(trimp.sum())
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -386,50 +394,26 @@ def compute_hr_zones(df: pd.DataFrame, params: dict | None = None) -> dict:
         return {}
     
     hr = df['hr'].dropna()
-    total = len(hr)
-    if total == 0:
+    if hr.empty:
         return {}
-    
+
+    # Secondes reellement passees dans la zone, et non nombre de lignes.
+    dt = dt_seconds(df, params.get('signal', {}).get('max_gap_s', 30.0)).reindex(
+        hr.index).fillna(0.0)
+    total = float(dt.sum())
+    if total <= 0:
+        return {}
+
     result = {}
     for zone_name, (low_pct, high_pct) in zones_cfg.items():
-        low_hr = hr_max * low_pct
-        high_hr = hr_max * high_pct
-        count = ((hr >= low_hr) & (hr < high_hr)).sum()
+        low_hr, high_hr = hr_max * low_pct, hr_max * high_pct
+        seconds = float(dt.where((hr >= low_hr) & (hr < high_hr), 0.0).sum())
         result[zone_name] = {
-            'seconds': int(count),
-            'pct': round(count / total * 100, 1),
-            'range_bpm': f"{int(low_hr)}-{int(high_hr)}"
+            'seconds': int(round(seconds)),
+            'pct': round(seconds / total * 100, 1),
+            'range_bpm': f"{int(low_hr)}-{int(high_hr)}",
         }
-    
     return result
-
-
-# ═══════════════════════════════════════════════════════════════
-#  5b. TRIMP MUSCULAIRE — Charge force → équivalent TRIMP
-# ═══════════════════════════════════════════════════════════════
-
-def compute_trimp_strength(sets: int, reps: int, weight_kg: float,
-                           coefficient: float = 0.1) -> float:
-    """
-    Convertit une séance de musculation en score TRIMP équivalent.
-
-    Formule empirique : TRIMP_strength = sets × reps × weight_kg × coefficient
-
-    Le coefficient par défaut (0.1) est calibré pour qu'une séance type
-    (3×10 @ 80kg) → TRIMP ≈ 24 (comparable à 30 min de Z2 léger).
-
-    Parameters
-    ----------
-    sets : nombre de séries
-    reps : répétitions par série
-    weight_kg : charge utilisée (kg)
-    coefficient : facteur de conversion (à calibrer)
-
-    Returns
-    -------
-    float : score TRIMP équivalent
-    """
-    return sets * reps * weight_kg * coefficient
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -445,48 +429,41 @@ def compute_dfa_alpha1(df: pd.DataFrame, params: dict | None = None) -> float:
       DFA α₁ ~ 1.0  → zone de transition
       DFA α₁ > 1.0  → zone anaérobie
 
-    Si les données RR (intervalles battement à battement) ne sont pas
-    disponibles dans le DataFrame, génère des intervalles RR synthétiques
-    physiologiquement plausibles à partir de la FC (mode mock).
+    Exige de VRAIS intervalles RR, dans la colonne `rr_ms`.
+
+    Sans eux la fonction renvoie NaN. Elle fabriquait auparavant des RR
+    synthetiques par un processus AR(1) a graine fixe, et renvoyait le
+    resultat comme un flottant ordinaire : une valeur inventee atteignait
+    ainsi la soupape de securite et pouvait bloquer une seance a haute
+    intensite. Un processus autoregressif calibre sur une FC ne contient
+    aucune information autonome — son exposant DFA reflete le generateur,
+    pas la physiologie.
+
+    Ni GoldenCheetah OpenData ni les fichiers .fit Coros du projet ne
+    fournissent de RR, donc cette metrique est actuellement indisponible.
+    C'est un manque assume, pas un trou a combler par simulation.
 
     Parameters
     ----------
-    df : DataFrame nettoyé avec colonne 'hr' (et optionnellement 'rr_ms')
+    df : DataFrame nettoye avec une colonne 'rr_ms'
     params : configuration (si None, charge depuis params.yaml)
 
     Returns
     -------
-    float : valeur DFA α₁ moyennée sur la séance
-            np.nan si insuffisamment de données
+    float : DFA alpha-1 de la seance, ou NaN si les RR sont absents
     """
     if params is None:
         params = load_params()
 
-    if 'hr' not in df.columns:
+    if 'rr_ms' not in df.columns or not HAS_ADVANCED:
         return np.nan
 
     mask = get_running_mask(df, params)
-    hr_series = df.loc[mask, 'hr'].dropna()
-
-    if len(hr_series) < 300:  # Minimum ~5 min pour DFA fiable
-        return np.nan
-
-    # Utiliser les vrais RR si disponibles
-    if 'rr_ms' in df.columns and df['rr_ms'].notna().sum() > 300:
-        rr_series = df.loc[mask, 'rr_ms'].dropna().values
-    else:
-        # Mode mock : générer RR physiologiquement plausibles depuis HR
-        if not HAS_ADVANCED:
-            return np.nan
-        rr_series = generate_mock_rr(hr_series.values)
-
+    rr_series = df.loc[mask, 'rr_ms'].dropna().to_numpy()
     if len(rr_series) < 200:
         return np.nan
 
-    if HAS_ADVANCED:
-        return dfa_alpha1_from_rr(rr_series)
-
-    return np.nan
+    return dfa_alpha1_from_rr(rr_series)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -535,13 +512,15 @@ def session_features(df: pd.DataFrame, params: dict | None = None) -> dict:
     if 'altitude' in df.columns:
         df = grade_adjusted_pace(df)
 
+    max_gap = params.get('signal', {}).get('max_gap_s', 30.0)
+    df = attach_timebase(df, max_gap)
     mask = get_running_mask(df, params)
-    duration_running_s = mask.sum()
 
     features = {
-        # Métriques de base
-        'duration_total_s':     len(df),
-        'duration_running_s':   int(duration_running_s),
+        # Durees en secondes reelles : len(df) comptait des lignes, donc une
+        # seance avec pauses etait systematiquement sous-evaluee.
+        'duration_total_s':     round(active_duration_s(df, None, max_gap)),
+        'duration_running_s':   round(active_duration_s(df, mask, max_gap)),
         'distance_m':           df['distance_m'].max() if 'distance_m' in df.columns else np.nan,
         'hr_mean':              df.loc[mask, 'hr'].mean() if 'hr' in df.columns else np.nan,
         'hr_max':               df.loc[mask, 'hr'].max() if 'hr' in df.columns else np.nan,
@@ -562,8 +541,13 @@ def session_features(df: pd.DataFrame, params: dict | None = None) -> dict:
         # DFA α₁ (proxy seuil aérobie)
         'dfa_alpha1':           compute_dfa_alpha1(df, params),
 
-        # Zones FC
-        'hr_zones':             compute_hr_zones(df, params),
     }
+
+    # Zones aplaties en colonnes scalaires : une colonne portant un dict ne
+    # survit pas proprement a un aller-retour Parquet.
+    for zone_name, zone in compute_hr_zones(df, params).items():
+        key = zone_name.split('_')[0]
+        features[f'hr_zone_{key}_s'] = zone['seconds']
+        features[f'hr_zone_{key}_pct'] = zone['pct']
 
     return features

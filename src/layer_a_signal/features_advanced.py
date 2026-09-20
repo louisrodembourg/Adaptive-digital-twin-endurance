@@ -9,7 +9,6 @@ Features:
   - smart_interpolation()      : Interpolation avec limites physiologiques
   - flag_artifacts()           : Marquer les segments nettoyés pour traçabilité
   - clean_signal_v2()          : Pipeline complet de nettoyage
-  - generate_mock_rr()         : Génère intervalles RR synthétiques depuis FC
   - dfa_alpha1_from_rr()       : Calcule DFA α₁ (proxy seuil aérobie)
 """
 
@@ -383,62 +382,15 @@ def signal_quality_report(df_raw: pd.DataFrame, df_clean: pd.DataFrame) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════
-#  7. HRV — GÉNÉRATION RR MOCK & DFA α₁
+#  7. HRV — DFA α₁
 # ═══════════════════════════════════════════════════════════════
-
-def generate_mock_rr(hr_array: np.ndarray, rmssd_ms: float = 35.0,
-                     seed: int = 42) -> np.ndarray:
-    """
-    Génère des intervalles RR synthétiques physiologiquement plausibles
-    à partir d'une série de FC (bpm).
-
-    Modèle :
-      RR_base(t) = 60000 / HR(t)                    [ms]
-      RR(t)      = RR_base(t) + bruit_HRV(t)
-
-    Le bruit HRV est modélisé comme un bruit coloré (1/f) à court terme,
-    caractéristique du système nerveux autonome au repos relatif.
-    L'amplitude est paramétrisée par rmssd_ms (typiquement 20-60 ms chez
-    un coureur entraîné).
-
-    Parameters
-    ----------
-    hr_array : FC en bpm (array 1D, résolution 1Hz)
-    rmssd_ms : RMSSD cible en ms (variabilité inter-battements)
-    seed : graine aléatoire pour reproductibilité
-
-    Returns
-    -------
-    np.ndarray : intervalles RR en ms (longueur ≈ len(hr_array))
-
-    Note
-    ----
-    Ce sont des données simulées, utiles pour développer et tester le
-    pipeline DFA α₁. Les vraies données RR de la montre Coros sont plus
-    fiables pour l'usage en production.
-    """
-    rng = np.random.default_rng(seed)
-    n = len(hr_array)
-
-    # RR de base en ms
-    hr_safe = np.where(hr_array > 0, hr_array, 60.0)
-    rr_base = 60000.0 / hr_safe
-
-    # Bruit coloré (HRV ~ autocorrélé à court terme)
-    # Simulation simplifiée : AR(1) avec coefficient ~ 0.6
-    noise = np.zeros(n)
-    ar_coeff = 0.6
-    scale = rmssd_ms * np.sqrt(1 - ar_coeff**2)
-    for i in range(1, n):
-        noise[i] = ar_coeff * noise[i-1] + rng.normal(0, scale)
-
-    rr_mock = rr_base + noise
-
-    # Contraintes physiologiques : RR entre 300ms (200 bpm) et 1500ms (40 bpm)
-    rr_mock = np.clip(rr_mock, 300, 1500)
-
-    return rr_mock
-
+#
+# Le generateur de RR synthetiques qui vivait ici a ete deplace dans
+# tests/fixtures/synthetic.py. Il produisait un processus AR(1) a graine
+# fixe, dont compute_dfa_alpha1 se servait en silence quand les vrais RR
+# manquaient — c'est-a-dire toujours. La valeur renvoyee etait un flottant
+# ordinaire, indiscernable d'une mesure, et atteignait la soupape de
+# securite. Du code de production ne doit pas pouvoir fabriquer une donnee.
 
 def dfa_alpha1_from_rr(rr_ms: np.ndarray, scales: tuple | None = None) -> float:
     """
