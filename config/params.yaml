@@ -11,14 +11,14 @@
 data_source:
   kind: opendata_osf              # opendata_osf | fit_dir | local_zip
   osf_node: "6hfpz"               # GoldenCheetah OpenData, DOI 10.17605/OSF.IO/6HFPZ
-  athlete_ref: null               # UUID de l'athlete retenu (voir opendata_manifest.json)
+  athlete_ref: "9e4573b1-0960-4c65-a579-fd5bb0cfe034"   # voir opendata_manifest.json
   manifest: "config/opendata_manifest.json"
   fit_dir: "data/raw"             # utilise seulement si kind == fit_dir
 
 # --- Athlete --------------------------------------------------
 athlete:
-  id: null
-  display_name: null
+  id: "gc-9e4573b1"
+  display_name: "GoldenCheetah OpenData 9e4573b1"
   sex: male                       # male | female -> constantes TRIMP derivees
   hr_max: null                    # bpm, estime au 99e percentile a la calibration
   hr_rest: null                   # bpm, estime au 1er percentile

@@ -1,0 +1,68 @@
+{
+  "dataset": {
+    "name": "GoldenCheetah OpenData",
+    "doi": "10.17605/OSF.IO/6HFPZ",
+    "osf_node": "6hfpz",
+    "url": "https://osf.io/6hfpz/",
+    "access": "API OSF uniquement — le bucket S3 historique est ferme au public",
+    "contains": ["secs", "km", "power", "hr", "cad", "alt"],
+    "does_not_contain": ["coordonnees GPS", "intervalles RR", "donnee identifiante"],
+    "screened_on": "2026-09-20",
+    "screened_count": 61,
+    "total_athletes": 6614
+  },
+  "criteria": {
+    "min_runs": 100,
+    "min_span_days": 300,
+    "min_hr_coverage": 0.85,
+    "max_elevation_m_per_km": 15.0,
+    "rationale": "Le modele de Banister exige un historique long et continu ; l'index de performance exige la frequence cardiaque ; un denivele eleve ferait refleter le terrain plutot que la forme dans les meilleurs efforts."
+  },
+  "athletes": [
+    {
+      "uuid": "9e4573b1-0960-4c65-a579-fd5bb0cfe034",
+      "role": "primary",
+      "file_id": "5e243080edceab012082d2a3",
+      "md5": "028ae1da159869c653ea9dfa37f0b43b",
+      "size_mb": 38.3,
+      "sex": "male",
+      "activities_total": 919,
+      "activities_with_hr": 864,
+      "runs": 173,
+      "span_days": 1985,
+      "median_elevation_m_per_km": 3.8,
+      "rationale": "Triathlete a l'historique le plus dense (une activite tous les 2,2 jours de 2014 a 2020) et au terrain le plus plat des candidats. Les 864 activites avec frequence cardiaque alimentent le modele de charge ; les 173 courses fournissent les observations de performance. GoldenCheetah publie son propre trimp_points sur ces 864 activites, ce qui permet de recouper notre calcul de TRIMP contre une implementation independante."
+    },
+    {
+      "uuid": "ea20681e-8aa1-4cf7-a61c-aaa35209dcb8",
+      "role": "secondary",
+      "file_id": "5ae6b3007d11e4001081a13f",
+      "md5": "1685d9aabd6205fe821f70b865df35a0",
+      "size_mb": 27.0,
+      "sex": "male",
+      "activities_total": 710,
+      "runs": 151,
+      "span_days": 1210,
+      "median_elevation_m_per_km": 6.1,
+      "rationale": "Second sujet, utile pour verifier que rien n'est cale sur un seul athlete."
+    },
+    {
+      "uuid": "448058a8-e556-4809-91e3-1a887cfb17a7",
+      "role": "secondary",
+      "file_id": "5cce98d537b4fe0016528a07",
+      "md5": "86dc11f9733ea7ebd23de56cf251cfb9",
+      "size_mb": 41.3,
+      "sex": "male",
+      "activities_total": 914,
+      "runs": 161,
+      "span_days": 2309,
+      "median_elevation_m_per_km": 8.9,
+      "rationale": "Historique le plus long (6 ans) mais tres irregulier : 307 activites en 2015 contre 2 en 2017. Interessant pour observer le comportement du modele sur une interruption prolongee."
+    }
+  ],
+  "notes": [
+    "L'annee de naissance est parfois aberrante dans le jeu de donnees (2053, 2078 rencontres) : ne pas s'en servir pour estimer une FC max.",
+    "Une archive sur la soixantaine examinee porte un JSON tronque ; le client l'ignore et poursuit.",
+    "Le resume horodate en UTC alors que les CSV sont nommes en heure locale ; l'appariement estime le decalage."
+  ]
+}
