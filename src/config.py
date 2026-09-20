@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import date
-from functools import lru_cache
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -220,7 +220,7 @@ def _build(raw: dict[str, Any], path: Path) -> Config:
     )
 
 
-@lru_cache(maxsize=None)
+@cache
 def _load_cached(path_str: str) -> Config:
     path = Path(path_str)
     if not path.exists():
@@ -241,7 +241,7 @@ def clear_config_cache() -> None:
     _load_raw_cached.cache_clear()
 
 
-@lru_cache(maxsize=None)
+@cache
 def _load_raw_cached(path_str: str) -> dict[str, Any]:
     with Path(path_str).open(encoding="utf-8") as fh:
         return yaml.safe_load(fh)

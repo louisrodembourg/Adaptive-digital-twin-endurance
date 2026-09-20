@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Installer les dependances
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check src app tests
+
+      # Les tests marques `network` touchent l'API OSF et les tests `mcmc`
+      # lancent un echantillonnage reel : exclus pour que la CI reste rapide
+      # et deterministe. Tout le reste tourne hors ligne sur les fixtures.
+      - name: Tests
+        run: pytest -m "not network and not mcmc" --cov=src --cov-report=term-missing
+
+  cold-install:
+    # Verifie qu'une installation a froid fonctionne. Le depot a longtemps eu
+    # un manifeste incomplet — pyarrow etait utilise par quatre modules sans
+    # jamais etre declare — et rien ne l'aurait signale.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install .
+      - run: python -c "import src.config, src.pipeline.orchestrator, src.evaluation.report"

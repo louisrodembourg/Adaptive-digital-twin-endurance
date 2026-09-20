@@ -22,10 +22,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
-from typing import Iterator, Sequence
 
 import numpy as np
 import pandas as pd
@@ -45,9 +45,8 @@ from ..layer_a_signal.performance import (
     ReferenceCurve,
     fit_reference_curve,
     mean_max_speed,
-    performance_index,
 )
-from .provenance import DataSource, ProvenanceSummary, coerce_source, summarize
+from .provenance import DataSource, ProvenanceSummary, summarize
 
 log = logging.getLogger(__name__)
 
@@ -435,13 +434,16 @@ def build_perf_observations(
         flags = []
         hr_max_session = s.get("hr_max")
         athlete_hr_max = cfg.athlete.hr_max
-        if athlete_hr_max and np.isfinite(_as_float(hr_max_session)):
-            if _as_float(hr_max_session) < perf_cfg.get("min_hr_frac_of_max", 0.9) * athlete_hr_max:
-                flags.append("hr_not_maximal")
+        if athlete_hr_max and np.isfinite(_as_float(hr_max_session)) and (
+            _as_float(hr_max_session)
+            < perf_cfg.get("min_hr_frac_of_max", 0.9) * athlete_hr_max
+        ):
+            flags.append("hr_not_maximal")
         gain, dist = _as_float(s.get("elevation_gain_m")), _as_float(s.get("distance_km_reported"))
-        if np.isfinite(gain) and np.isfinite(dist) and dist > 0:
-            if gain / dist > perf_cfg.get("max_elevation_gain_m_per_km", 15):
-                flags.append("hilly")
+        if np.isfinite(gain) and np.isfinite(dist) and dist > 0 and (
+            gain / dist > perf_cfg.get("max_elevation_gain_m_per_km", 15)
+        ):
+            flags.append("hilly")
 
         rows.append({
             "session_id": s["session_id"],
@@ -568,8 +570,8 @@ def _write_calibration(cfg: Config, sessions: pd.DataFrame,
     payload = {
         "athlete_id": cfg.athlete.id,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "n_sessions": int(len(sessions)),
-        "n_perf_observations": int(len(obs)),
+        "n_sessions": len(sessions),
+        "n_perf_observations": len(obs),
         "hr_max_estimated": float(np.percentile(hr_max, 99)) if len(hr_max) else None,
         "hr_rest_estimated": float(np.percentile(hr_min, 1)) if len(hr_min) else None,
         "reference_curve": reference.to_dict(),

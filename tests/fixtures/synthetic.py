@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 
+
 def synthetic_rr_from_hr(hr_array: np.ndarray, rmssd_ms: float = 35.0,
                      seed: int = 42) -> np.ndarray:
     """

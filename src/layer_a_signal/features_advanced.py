@@ -12,12 +12,12 @@ Features:
   - dfa_alpha1_from_rr()       : Calcule DFA α₁ (proxy seuil aérobie)
 """
 
-import pandas as pd
-import numpy as np
 from pathlib import Path
+
+import numpy as np
+import pandas as pd
 from scipy import signal as scipy_signal
 from scipy import stats as scipy_stats
-
 
 from ..config import load_params as _shared_load_params
 
@@ -319,7 +319,7 @@ def clean_signal_v2(df: pd.DataFrame, params: dict | None = None, verbose: bool 
             )
 
     if verbose:
-        print(f"  ✓ Savitzky-Golay: HR, speed, cadence")
+        print("  ✓ Savitzky-Golay: HR, speed, cadence")
 
     # ─── STEP 5: Recalcul dérivées ──────────────────────────────
     if 'speed_ms' in df.columns:
@@ -331,8 +331,8 @@ def clean_signal_v2(df: pd.DataFrame, params: dict | None = None, verbose: bool 
         )
 
     if verbose:
-        print(f"  ✓ Dérivées recalculées (speed_kmh, pace_min_km)")
-        print(f"  ✅ Nettoyage v2 complet!")
+        print("  ✓ Dérivées recalculées (speed_kmh, pace_min_km)")
+        print("  ✅ Nettoyage v2 complet!")
 
     return df
 

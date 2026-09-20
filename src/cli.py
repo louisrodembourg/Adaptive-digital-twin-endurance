@@ -14,11 +14,8 @@ bord. C'est ce qui rend les resultats verifiables plutot que declaratifs.
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import sys
-from dataclasses import replace
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -141,7 +138,7 @@ def cmd_calibrate(args, cfg: Config) -> int:
 
     _patch_params_yaml(cfg, calib, reference_time)
     clear_config_cache()
-    print(f"\nparams.yaml mis a jour.")
+    print("\nparams.yaml mis a jour.")
     return 0
 
 
@@ -217,7 +214,7 @@ def _fmt(value) -> str:
 
 
 def _hms(seconds: float) -> str:
-    s = int(round(seconds))
+    s = round(seconds)
     return f"{s // 3600}h{s % 3600 // 60:02d}:{s % 60:02d}"
 
 

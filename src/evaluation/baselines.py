@@ -27,7 +27,7 @@ class Baseline:
 
     name: str = "baseline"
 
-    def fit(self, dates: pd.Series, y: np.ndarray) -> "Baseline":
+    def fit(self, dates: pd.Series, y: np.ndarray) -> Baseline:
         raise NotImplementedError
 
     def predict(self, dates: pd.Series) -> np.ndarray:

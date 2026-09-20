@@ -3,11 +3,12 @@ Layer A — Signal Lab : Ingestion des fichiers .fit (Coros)
 Utilise le SDK officiel Garmin (garmin-fit-sdk) pour une lecture robuste.
 """
 
-from garmin_fit_sdk import Decoder, Stream
-import pandas as pd
-import numpy as np
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+from garmin_fit_sdk import Decoder, Stream
 
 
 def parse_fit(filepath: str | Path) -> tuple[pd.DataFrame, pd.DataFrame]:

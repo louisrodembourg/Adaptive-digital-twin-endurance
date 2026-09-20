@@ -17,14 +17,12 @@ Données collectées :
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, asdict, field
-from datetime import date, datetime
+from dataclasses import asdict, dataclass
+from datetime import date
 from pathlib import Path
-from typing import Optional
 
-import pandas as pd
 import numpy as np
-
+import pandas as pd
 
 from ..config import load_params as _shared_load_params
 
@@ -54,10 +52,10 @@ class DailyContext:
     notes : texte libre pour LLM context parsing (ex: "jambes lourdes, stressé")
     """
     date: date
-    rmssd_ms: Optional[float] = None
+    rmssd_ms: float | None = None
     sleep_hours: float = 7.0
     sleep_quality: int = 3       # 1-5
-    rpe_yesterday: Optional[float] = None  # 1-10 Borg
+    rpe_yesterday: float | None = None  # 1-10 Borg
     stress_level: int = 2        # 1-5
     notes: str = ""
 
@@ -121,7 +119,7 @@ class DailyContext:
         return d
 
     @classmethod
-    def from_dict(cls, d: dict) -> 'DailyContext':
+    def from_dict(cls, d: dict) -> DailyContext:
         d = d.copy()
         if isinstance(d.get('date'), str):
             d['date'] = date.fromisoformat(d['date'])
@@ -131,7 +129,7 @@ class DailyContext:
         return cls(**d)
 
     @classmethod
-    def from_json(cls, path: str | Path) -> 'DailyContext':
+    def from_json(cls, path: str | Path) -> DailyContext:
         with open(path) as f:
             return cls.from_dict(json.load(f))
 
@@ -191,7 +189,7 @@ class DailyContextStore:
                 continue
         return contexts
 
-    def load_date(self, target_date: date) -> Optional[DailyContext]:
+    def load_date(self, target_date: date) -> DailyContext | None:
         """Retourne le contexte d'un jour précis ou None."""
         df = self._load_existing()
         if df.empty:

@@ -19,7 +19,6 @@ from src.layer_a_signal import features
 from src.layer_a_signal.timebase import (
     active_duration_s,
     attach_timebase,
-    dt_seconds,
     longest_contiguous_s,
 )
 

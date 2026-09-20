@@ -9,6 +9,8 @@ rien appris, il a memorise.
 
 from __future__ import annotations
 
+import functools
+
 import numpy as np
 import pandas as pd
 
@@ -49,6 +51,10 @@ def banister_predictor(daily_load: pd.DataFrame, tau1: float = 42.0,
     return predict
 
 
+def _run_baseline(baseline, dates_tr, y_tr, dates_te) -> np.ndarray:
+    return baseline.fit_predict(dates_tr, y_tr, dates_te)
+
+
 def build_variants(daily_load: pd.DataFrame,
                    taus: list[tuple[float, float]] | None = None) -> dict[str, Predictor]:
     """
@@ -58,9 +64,13 @@ def build_variants(daily_load: pd.DataFrame,
     qui empeche de presenter comme un succes un modele qui perd contre
     « predire la moyenne ».
     """
+    def _as_predictor(baseline) -> Predictor:
+        # functools.partial lie la reference explicitement ; une lambda
+        # capturerait la variable de boucle, donc la derniere reference.
+        return functools.partial(_run_baseline, baseline)
+
     variants: dict[str, Predictor] = {
-        b.name: (lambda b: lambda dtr, ytr, dte: b.fit_predict(dtr, ytr, dte))(b)
-        for b in default_baselines()
+        b.name: _as_predictor(b) for b in default_baselines()
     }
     for tau1, tau2 in taus or [(42.0, 12.0)]:
         variants[f"banister t{tau1:.0f}/{tau2:.0f}"] = banister_predictor(daily_load, tau1, tau2)

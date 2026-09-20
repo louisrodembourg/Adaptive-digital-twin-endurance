@@ -95,7 +95,7 @@ def longest_contiguous_s(mask: pd.Series, dt: pd.Series) -> float:
     m = mask.fillna(False).to_numpy(dtype=bool)
     d = dt.reindex(mask.index).fillna(0.0).to_numpy(dtype=float)
     best = current = 0.0
-    for flag, step in zip(m, d):
+    for flag, step in zip(m, d, strict=False):
         current = current + step if flag else 0.0
         best = max(best, current)
     return float(best)

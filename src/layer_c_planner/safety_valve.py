@@ -21,10 +21,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
-from typing import Optional
-
-import numpy as np
-
 
 from ..config import load_params as _shared_load_params
 
@@ -61,7 +57,7 @@ class HardConstraint:
     reason: str
     blocked_sessions: set[str] = field(default_factory=set)
     volume_reduction_pct: float = 0.0
-    force_session_type: Optional[str] = None
+    force_session_type: str | None = None
 
     @property
     def description(self) -> str:

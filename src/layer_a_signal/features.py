@@ -16,9 +16,10 @@ Features implémentées :
   - compute_dfa_alpha1()     : DFA α₁ — proxy du seuil aérobie (via RR)
 """
 
-import pandas as pd
-import numpy as np
 from pathlib import Path
+
+import numpy as np
+import pandas as pd
 
 # Import advanced cleaning (v2) and HRV tools
 try:
@@ -28,7 +29,8 @@ except ImportError:
     HAS_ADVANCED = False
 
 
-from ..config import ConfigError, load_config, load_params as _shared_load_params
+from ..config import ConfigError, load_config
+from ..config import load_params as _shared_load_params
 from .timebase import active_duration_s, attach_timebase, dt_seconds, longest_contiguous_s
 
 
@@ -97,12 +99,12 @@ def get_running_mask(df: pd.DataFrame, params: dict | None = None) -> pd.Series:
     """
     if params is None:
         params = load_params()
-    
+
     min_speed = params.get('signal', {}).get('speed_min_running_ms', 1.5)
-    
+
     if 'speed_ms' not in df.columns:
         return pd.Series(True, index=df.index)
-    
+
     return df['speed_ms'] >= min_speed
 
 
@@ -118,10 +120,10 @@ def efficiency_factor(df: pd.DataFrame) -> float:
     """
     mask = get_running_mask(df)
     df_run = df.loc[mask].dropna(subset=['speed_ms', 'hr'])
-    
+
     if df_run.empty or df_run['hr'].mean() == 0:
         return np.nan
-    
+
     return df_run['speed_ms'].mean() / df_run['hr'].mean()
 
 
@@ -129,25 +131,25 @@ def specific_ef(df: pd.DataFrame, params: dict | None = None, cfg=None) -> float
     """
     EF Spécifique = Vitesse / FC uniquement sur les segments
     courus à l'allure cible (3'40"/km ± tolérance).
-    
+
     C'est LE marqueur clé pour l'objectif 1h18.
     Si EF_spec monte → tu deviens plus efficace à ton allure de course.
     """
     if params is None:
         params = load_params()
-    
+
     target_speed = _target_speed_or_nan(cfg)
     if not np.isfinite(target_speed):
         return np.nan
     tolerance = params['signal']['ef_pace_tolerance_pct'] / 100  # 0.05
     min_duration = params['signal']['ef_min_duration_s']       # 60s
-    
+
     speed_low = target_speed * (1 - tolerance)
     speed_high = target_speed * (1 + tolerance)
-    
+
     if 'speed_ms' not in df.columns or 'hr' not in df.columns:
         return np.nan
-    
+
     # Filtrer les segments à l'allure cible
     mask = (
         (df['speed_ms'] >= speed_low) &
@@ -155,7 +157,7 @@ def specific_ef(df: pd.DataFrame, params: dict | None = None, cfg=None) -> float
         (df['hr'].notna()) &
         (df['speed_ms'].notna())
     )
-    
+
     dt = dt_seconds(df, params.get('signal', {}).get('max_gap_s', 30.0))
 
     # Le seuil porte sur la plus longue tenue continue a l'allure cible, pas
@@ -355,34 +357,35 @@ def _weighted_ef(part: pd.DataFrame) -> float:
 def compute_trimp(df: pd.DataFrame, params: dict | None = None, cfg=None) -> float:
     """
     TRIMP de Banister (exponentiel) :
-    
+
     TRIMP = Σ (1/60) × ΔHR_ratio × 0.64 × e^(1.92 × ΔHR_ratio)
-    
+
     où ΔHR_ratio = (HR - HR_rest) / (HR_max - HR_rest)
-    
+
     Unité : charge arbitraire. Plus c'est haut, plus la séance est coûteuse.
     """
     if params is None:
         params = load_params()
-    
+
     cfg = cfg or load_config()
-    # hr_reserve porte la garde de calibration : sans FC max ni FC repos le
-    # TRIMP n'a pas de sens, et mieux vaut le dire que produire un nombre.
-    cfg.athlete.hr_reserve
-    hr_max, hr_rest = cfg.athlete.hr_max, cfg.athlete.hr_rest
+    # Lire hr_reserve declenche la garde de calibration : sans FC max ni FC
+    # repos le TRIMP n'a pas de sens, et mieux vaut le dire que produire un
+    # nombre. La valeur elle-meme sert au denominateur.
+    hr_reserve = cfg.athlete.hr_reserve
+    _hr_max, hr_rest = cfg.athlete.hr_max, cfg.athlete.hr_rest
     # (b, c) derives du sexe : TRIMP = duree_min * dHR * b * exp(c * dHR).
     # Les deux coefficients viennent d'une seule source pour qu'ils ne
     # puissent plus etre intervertis independamment.
     gender_factor, gender_exp = cfg.athlete.trimp_coeffs
-    
+
     if 'hr' not in df.columns:
         return np.nan
-    
+
     hr_series = df['hr'].dropna()
     if hr_series.empty:
         return 0.0
-    
-    delta_hr = ((hr_series - hr_rest) / (hr_max - hr_rest)).clip(0, 1)
+
+    delta_hr = ((hr_series - hr_rest) / hr_reserve).clip(0, 1)
 
     # Chaque echantillon pese sa duree reelle. L'ancienne version comptait
     # 1/60 de minute par ligne, ce qui revient a supposer un echantillonnage
@@ -401,20 +404,20 @@ def compute_trimp(df: pd.DataFrame, params: dict | None = None, cfg=None) -> flo
 def compute_hr_zones(df: pd.DataFrame, params: dict | None = None, cfg=None) -> dict:
     """
     Calcul du temps passé (en secondes et %) dans chaque zone FC.
-    
+
     Returns
     -------
     dict avec clés z1..z5, chaque entrée = {'seconds': int, 'pct': float}
     """
     if params is None:
         params = load_params()
-    
+
     hr_max = (cfg or load_config()).athlete.hr_max
     zones_cfg = params['hr_zones']
-    
+
     if 'hr' not in df.columns:
         return {}
-    
+
     hr = df['hr'].dropna()
     if hr.empty:
         return {}
@@ -431,7 +434,7 @@ def compute_hr_zones(df: pd.DataFrame, params: dict | None = None, cfg=None) -> 
         low_hr, high_hr = hr_max * low_pct, hr_max * high_pct
         seconds = float(dt.where((hr >= low_hr) & (hr < high_hr), 0.0).sum())
         result[zone_name] = {
-            'seconds': int(round(seconds)),
+            'seconds': round(seconds),
             'pct': round(seconds / total * 100, 1),
             'range_bpm': f"{int(low_hr)}-{int(high_hr)}",
         }
@@ -496,20 +499,20 @@ def normalized_power(df: pd.DataFrame, window: int = 30) -> float:
     """
     Normalized Power (NP) = moyenne glissante 30s de la puissance,
     élevée à la puissance 4, moyennée, puis racine 4ème.
-    
+
     NP = (mean(rolling_30s(power)^4))^(1/4)
-    
+
     Plus représentatif de la charge métabolique que la puissance moyenne.
     """
     if 'power' not in df.columns:
         return np.nan
-    
+
     p = df['power'].dropna()
     if len(p) < window:
         return p.mean() if len(p) > 0 else np.nan
-    
+
     rolling_avg = p.rolling(window=window, min_periods=1).mean()
-    
+
     return (rolling_avg.pow(4).mean()) ** 0.25
 
 

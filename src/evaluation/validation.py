@@ -14,8 +14,8 @@ les deux colonnes qui constitue le resultat.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from typing import Callable, Iterator, Sequence
 
 import numpy as np
 import pandas as pd
@@ -144,7 +144,7 @@ def cross_validate(
     y_true = np.concatenate(trues)
     y_pred = np.concatenate(preds)
     # Reference par pli : la moyenne connue au moment de la prediction.
-    mean_pred = np.concatenate([np.full(f.n_test, m) for f, m in zip(folds, train_means)])
+    mean_pred = np.concatenate([np.full(f.n_test, m) for f, m in zip(folds, train_means, strict=False)])
 
     try:
         in_sample = np.asarray(predictor(dates, y, dates), dtype=float)

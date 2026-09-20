@@ -22,19 +22,17 @@ Outputs :
 from __future__ import annotations
 
 import warnings
-from pathlib import Path
-from typing import Optional
-
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 # PyMC est importé conditionnellement (peut ne pas être installé)
 try:
+    import arviz as az  # noqa: F401  (reexporte pour les diagnostics)
     import pymc as pm
     import pytensor.tensor as pt
-    import arviz as az
     HAS_PYMC = True
 except ImportError:
     HAS_PYMC = False
@@ -171,8 +169,6 @@ def build_banister_model(
     # Observations
     obs_days = np.array([d for d, _ in perf_observations])
     obs_perf = np.array([p for _, p in perf_observations])
-
-    n_days = len(trimp_history)
 
     with pm.Model() as model:
         # ─── Priors (littérature + calibrés sur record 1h22) ───────
@@ -441,7 +437,7 @@ class PerformanceParams:
             "fatigue_std", "tau1", "tau2", "n_observations", "source")}
 
     @classmethod
-    def from_dict(cls, d: dict) -> "PerformanceParams":
+    def from_dict(cls, d: dict) -> PerformanceParams:
         return cls(**{k: d[k] for k in (
             "p0", "k1", "k2", "fitness_mean", "fitness_std", "fatigue_mean",
             "fatigue_std", "tau1", "tau2", "n_observations")},

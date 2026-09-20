@@ -18,12 +18,10 @@ Exemples de traductions :
 from __future__ import annotations
 
 import json
-import re
 import os
+import re
 import warnings
-from dataclasses import dataclass, field, asdict
-from pathlib import Path
-from typing import Optional
+from dataclasses import asdict, dataclass, field
 
 # Anthropic API — import conditionnel
 try:
@@ -51,7 +49,7 @@ class SoftConstraints:
     """
     max_volume_pct: float = 1.0          # 1.0 = pas de restriction
     no_session_types: list[str] = field(default_factory=list)
-    max_sessions_this_week: Optional[int] = None
+    max_sessions_this_week: int | None = None
     prefer_morning: bool = False
     avoid_days: list[int] = field(default_factory=list)  # 0=lundi...6=dimanche
     reason: str = ""
@@ -70,7 +68,7 @@ class SoftConstraints:
         return asdict(self)
 
     @classmethod
-    def no_restriction(cls) -> 'SoftConstraints':
+    def no_restriction(cls) -> SoftConstraints:
         return cls(reason="Aucun contexte restrictif détecté.")
 
     def summary(self) -> str:
@@ -157,7 +155,7 @@ def parse_context_to_constraints(
         except Exception as e:
             if not use_heuristic_fallback:
                 raise
-            warnings.warn(f"LLM API error, fallback heuristique : {e}", UserWarning)
+            warnings.warn(f"LLM API error, fallback heuristique : {e}", UserWarning, stacklevel=2)
 
     # Fallback heuristique
     return _parse_heuristic(user_input)
@@ -212,7 +210,7 @@ def _parse_heuristic(user_input: str) -> SoftConstraints:
     if any(w in text for w in ["blessé", "blessure", "douleur", "mal au"]):
         return SoftConstraints(
             max_volume_pct=0.0,
-            no_session_types=list(["VMA", "THRESHOLD", "SPECIFIC", "ENDURANCE"]),
+            no_session_types=["VMA", "THRESHOLD", "SPECIFIC", "ENDURANCE"],
             reason="Blessure/douleur détectée — repos recommandé",
             confidence=0.85,
         )

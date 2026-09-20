@@ -25,10 +25,11 @@ import io
 import json
 import logging
 import zipfile
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import requests
 

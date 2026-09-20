@@ -6,7 +6,7 @@ from dataclasses import replace
 
 import pytest
 
-from src.config import ConfigError, TRIMP_COEFFS, clear_config_cache, load_config
+from src.config import TRIMP_COEFFS, ConfigError, clear_config_cache, load_config
 
 
 def test_config_is_cached():

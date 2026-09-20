@@ -1,0 +1,76 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "digital-twin-endurance"
+version = "0.2.0"
+description = "Jumeau numerique d'entrainement d'endurance : ingestion de donnees publiques, modele de charge, et evaluation hors echantillon du modele fitness-fatigue"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+dependencies = [
+    "numpy>=1.24,<3",
+    "pandas>=2.0,<3",
+    "scipy>=1.11",
+    "pyarrow>=14",
+    "pymc>=5.20,<6",
+    "pytensor>=2.30",
+    "arviz>=0.20",
+    "ortools>=9.10",
+    "garmin-fit-sdk>=21",
+    "requests>=2.31",
+    "streamlit>=1.40",
+    "plotly>=5.20",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.6", "nbstripout>=0.7"]
+# Adaptateurs LLM du planificateur. Le parsing de contexte fonctionne en mode
+# heuristique sans aucun de ces paquets.
+llm = ["anthropic>=0.40"]
+
+[project.scripts]
+digital-twin = "src.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q --strict-markers -m 'not network'"
+markers = [
+    "network: touche le reseau (API OSF)",
+    "mcmc: lance un echantillonnage MCMC reel",
+    "slow: plusieurs secondes ou plus",
+]
+filterwarnings = ["ignore::DeprecationWarning", "ignore::FutureWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
+ignore = [
+    "E501",    # la longueur est deja bornee par line-length
+    "RUF001",  # les commentaires sont en francais, ponctuation comprise
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# B018 : les tests evaluent volontairement une expression nue a l'interieur
+# d'un pytest.raises, pour verifier qu'elle leve.
+"tests/*" = ["B011", "B018"]
+# SIM102 : les conditions imbriquees portent chacune un commentaire distinct ;
+# les fusionner rendrait l'intention moins lisible.
+"src/layer_c_planner/*" = ["SIM102"]
+"src/ingestion/*" = ["SIM102"]
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["src/cli.py"]

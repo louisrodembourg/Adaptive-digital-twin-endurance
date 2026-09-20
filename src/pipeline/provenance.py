@@ -14,16 +14,16 @@ explicite, et chaque artefact persiste porte sa propre origine.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from enum import Enum
-from typing import Iterable
+from enum import StrEnum
 
 
 class ProvenanceError(RuntimeError):
     """Tentative d'ecrire une donnee synthetique sans l'avoir autorisee."""
 
 
-class DataSource(str, Enum):
+class DataSource(StrEnum):
     """D'ou vient une seance. Aucune valeur par defaut, nulle part."""
 
     OPENDATA_OSF = "opendata_osf"   # GoldenCheetah OpenData

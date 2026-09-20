@@ -9,11 +9,10 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import pytest
 
-from src.config import ConfigError, load_config
+from src.config import ConfigError
 from src.layer_a_signal import features as fx
 from src.pipeline import orchestrator as orch
 from src.pipeline.orchestrator import (

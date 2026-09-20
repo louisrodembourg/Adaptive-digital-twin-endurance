@@ -109,7 +109,7 @@ def test_fit_is_robust_to_a_single_corrupt_session():
     reference a 15 m/s. Le percentile absorbe l'aberration.
     """
     history = _history()
-    history.append({d: 12.0 for d in DEFAULT_DURATIONS_S})
+    history.append(dict.fromkeys(DEFAULT_DURATIONS_S, 12.0))
     curve = fit_reference_curve(history)
     assert curve.exponent == pytest.approx(0.07, abs=0.015)
     assert curve.speed_at(300) < 6.0

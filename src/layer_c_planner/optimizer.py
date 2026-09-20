@@ -22,9 +22,6 @@ import warnings
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Optional
-
-import numpy as np
 
 # OR-Tools import conditionnel
 try:
@@ -38,17 +35,15 @@ except ImportError:
         ImportWarning, stacklevel=2
     )
 
+from ..config import load_params as _shared_load_params
+from .llm_context_parser import SoftConstraints
 from .safety_valve import (
     SESSION_TYPES,
     HardConstraint,
     get_allowed_sessions,
-    get_volume_multiplier,
     get_forced_session,
+    get_volume_multiplier,
 )
-from .llm_context_parser import SoftConstraints
-
-
-from ..config import load_params as _shared_load_params
 
 
 def _load_params(config_path: str | Path | None = None) -> dict:
@@ -148,11 +143,11 @@ DAY_NAMES = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Diman
 
 def optimize_week(
     hard_constraints: list[HardConstraint],
-    soft_constraints: Optional[SoftConstraints] = None,
+    soft_constraints: SoftConstraints | None = None,
     previous_week_trimp: float = 250.0,
-    week_start: Optional[date] = None,
+    week_start: date | None = None,
     params: dict | None = None,
-    race_date: Optional[date] = None,
+    race_date: date | None = None,
 ) -> WeeklyPlan:
     """
     Génère le plan optimal pour la semaine via OR-Tools CP-SAT.
@@ -281,14 +276,13 @@ def _optimize_ortools(
         model.Add(rest_count >= 1)
 
     # ── Contrainte : max sessions par semaine (soft → pénalité) ─
-    if soft_constraints.max_sessions_this_week is not None:
-        if "REST" in type_index:
-            ri = type_index["REST"]
-            non_rest_count = sum(
-                x[j][t] for j in range(7) for t in range(n_types)
-                if session_list[t] != "REST"
-            )
-            model.Add(non_rest_count <= soft_constraints.max_sessions_this_week)
+    if soft_constraints.max_sessions_this_week is not None and "REST" in type_index:
+        ri = type_index["REST"]
+        non_rest_count = sum(
+            x[j][t] for j in range(7) for t in range(n_types)
+            if session_list[t] != "REST"
+        )
+        model.Add(non_rest_count <= soft_constraints.max_sessions_this_week)
 
     # ── Contrainte : volume total max ─────────────────────────
     total_trimp_expr = sum(
@@ -482,7 +476,7 @@ def _build_rationale(
 def generate_taper_plan(
     race_date: date,
     current_fitness: float,
-    week_start: Optional[date] = None,
+    week_start: date | None = None,
     params: dict | None = None,
 ) -> WeeklyPlan:
     """

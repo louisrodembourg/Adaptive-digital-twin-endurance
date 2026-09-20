@@ -26,8 +26,8 @@ recalculer a chaque execution ferait deriver le sens meme de la valeur 1.0.
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import Iterable, Sequence
 
 import numpy as np
 import pandas as pd
@@ -120,7 +120,7 @@ def _uniform_grid(df: pd.DataFrame, max_gap_s: float) -> tuple[np.ndarray, np.nd
     if distance is None:
         return None
 
-    total = int(math.floor(elapsed[-1]))
+    total = math.floor(elapsed[-1])
     if total < 2:
         return None
 
@@ -133,8 +133,8 @@ def _uniform_grid(df: pd.DataFrame, max_gap_s: float) -> tuple[np.ndarray, np.nd
     holes = np.flatnonzero(dt > 1.5)
     for i in holes:
         start = elapsed[i] - dt[i]
-        lo = max(0, int(math.floor(start)))
-        hi = min(total, int(math.ceil(elapsed[i])))
+        lo = max(0, math.floor(start))
+        hi = min(total, math.ceil(elapsed[i]))
         valid[lo : hi + 1] = False
     return on_grid, valid
 
@@ -212,7 +212,7 @@ class ReferenceCurve:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "ReferenceCurve":
+    def from_dict(cls, d: dict) -> ReferenceCurve:
         return cls(
             v_ref_ms=float(d["v_ref_ms"]),
             t_ref_s=float(d["t_ref_s"]),
@@ -362,9 +362,10 @@ def performance_index(
     else:
         flags.append("no_hr")
 
-    if elevation_gain_m is not None and distance_km:
-        if elevation_gain_m / distance_km > max_elevation_m_per_km:
-            flags.append("hilly")
+    if elevation_gain_m is not None and distance_km and (
+        elevation_gain_m / distance_km > max_elevation_m_per_km
+    ):
+        flags.append("hilly")
 
     return PerformanceObservation(
         session_id=session_id,
