@@ -56,6 +56,9 @@ DAILY_LOAD_FILE = "daily_load.parquet"
 PERF_OBS_FILE = "perf_observations.parquet"
 CALIBRATION_FILE = "athlete_calibration.json"
 
+# Fenetres de puissance critique reprises du resume, en minutes.
+CRITICAL_POWER_WINDOWS: tuple[int, ...] = (5, 10, 20, 30, 60)
+
 
 # ── specification de source ──────────────────────────────────────────────
 
@@ -342,6 +345,13 @@ def featurize(raw: RawSession, cfg: Config | None = None) -> dict:
     # nettoye ne convient pas : Savitzky-Golay lisse justement les extremes,
     # et releve ce minimum de plusieurs dizaines de battements.
     row["hr_min_reported"] = _as_float(raw.summary.get("min_heartrate"))
+
+    # Puissances critiques publiees par GoldenCheetah. C'est la mesure de
+    # performance du velo, qui represente 80 % de la charge de cet athlete
+    # mais n'etait jusqu'ici jamais mesuree. Disponibles pour 417 seances
+    # velo sans decoder un seul CSV.
+    for window in CRITICAL_POWER_WINDOWS:
+        row[f"cp{window}_w"] = _as_float(raw.summary.get(f"{window}m_critical_power"))
     row["elevation_gain_m"] = _as_float(raw.summary.get("elevation_gain"))
     row["distance_km_reported"] = _as_float(raw.summary.get("total_distance"))
     return row
