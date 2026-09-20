@@ -18,15 +18,22 @@ from src.config import PROJECT_ROOT, clear_config_cache, load_config
 
 REAL_DATA_DIR = PROJECT_ROOT / "data"
 
+# data/cache est un cache de telechargement : disposable, et legitimement
+# ecrit par des processus concurrents (une ingestion qui tourne a cote).
+# Le surveiller produirait des echecs qui n'apprennent rien.
+GUARDED_SUBDIRS = ("raw", "processed")
 
-def _snapshot(root: Path) -> dict[str, float]:
-    if not root.exists():
-        return {}
-    return {
-        str(p.relative_to(root)): p.stat().st_mtime_ns
-        for p in root.rglob("*")
-        if p.is_file()
-    }
+
+def _snapshot(root: Path) -> dict[str, int]:
+    snap: dict[str, int] = {}
+    for sub in GUARDED_SUBDIRS:
+        base = root / sub
+        if not base.exists():
+            continue
+        for p in base.rglob("*"):
+            if p.is_file():
+                snap[str(p.relative_to(root))] = p.stat().st_mtime_ns
+    return snap
 
 
 @pytest.fixture(autouse=True)
