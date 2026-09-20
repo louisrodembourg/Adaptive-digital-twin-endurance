@@ -1,13 +1,16 @@
 """
-Layer A — Signal Lab : Advanced Signal Cleaning v2
+Layer A — Signal Lab : Advanced Signal Cleaning v2 + HRV Tools
 Algorithmes robustes pour données 1Hz bruitées (Savitzky-Golay, Z-score, etc.)
+et calcul de la variabilité cardiaque (HRV / DFA α₁).
 
 Features:
   - detect_anomalies()         : Z-score glissant pour détecter spikes
   - smooth_savgol()            : Savitzky-Golay (meilleur que median pour séries temps)
-  - advanced_interpolation()   : Interpolation smart (limites physiologiques)
+  - smart_interpolation()      : Interpolation avec limites physiologiques
   - flag_artifacts()           : Marquer les segments nettoyés pour traçabilité
-  - clean_signal_v2()          : Pipeline complet
+  - clean_signal_v2()          : Pipeline complet de nettoyage
+  - generate_mock_rr()         : Génère intervalles RR synthétiques depuis FC
+  - dfa_alpha1_from_rr()       : Calcule DFA α₁ (proxy seuil aérobie)
 """
 
 import pandas as pd
@@ -15,6 +18,7 @@ import numpy as np
 import yaml
 from pathlib import Path
 from scipy import signal as scipy_signal
+from scipy import stats as scipy_stats
 
 
 def load_params(config_path: str | Path | None = None) -> dict:
@@ -377,3 +381,152 @@ def signal_quality_report(df_raw: pd.DataFrame, df_clean: pd.DataFrame) -> dict:
         }
 
     return report
+
+
+# ═══════════════════════════════════════════════════════════════
+#  7. HRV — GÉNÉRATION RR MOCK & DFA α₁
+# ═══════════════════════════════════════════════════════════════
+
+def generate_mock_rr(hr_array: np.ndarray, rmssd_ms: float = 35.0,
+                     seed: int = 42) -> np.ndarray:
+    """
+    Génère des intervalles RR synthétiques physiologiquement plausibles
+    à partir d'une série de FC (bpm).
+
+    Modèle :
+      RR_base(t) = 60000 / HR(t)                    [ms]
+      RR(t)      = RR_base(t) + bruit_HRV(t)
+
+    Le bruit HRV est modélisé comme un bruit coloré (1/f) à court terme,
+    caractéristique du système nerveux autonome au repos relatif.
+    L'amplitude est paramétrisée par rmssd_ms (typiquement 20-60 ms chez
+    un coureur entraîné).
+
+    Parameters
+    ----------
+    hr_array : FC en bpm (array 1D, résolution 1Hz)
+    rmssd_ms : RMSSD cible en ms (variabilité inter-battements)
+    seed : graine aléatoire pour reproductibilité
+
+    Returns
+    -------
+    np.ndarray : intervalles RR en ms (longueur ≈ len(hr_array))
+
+    Note
+    ----
+    Ce sont des données simulées, utiles pour développer et tester le
+    pipeline DFA α₁. Les vraies données RR de la montre Coros sont plus
+    fiables pour l'usage en production.
+    """
+    rng = np.random.default_rng(seed)
+    n = len(hr_array)
+
+    # RR de base en ms
+    hr_safe = np.where(hr_array > 0, hr_array, 60.0)
+    rr_base = 60000.0 / hr_safe
+
+    # Bruit coloré (HRV ~ autocorrélé à court terme)
+    # Simulation simplifiée : AR(1) avec coefficient ~ 0.6
+    noise = np.zeros(n)
+    ar_coeff = 0.6
+    scale = rmssd_ms * np.sqrt(1 - ar_coeff**2)
+    for i in range(1, n):
+        noise[i] = ar_coeff * noise[i-1] + rng.normal(0, scale)
+
+    rr_mock = rr_base + noise
+
+    # Contraintes physiologiques : RR entre 300ms (200 bpm) et 1500ms (40 bpm)
+    rr_mock = np.clip(rr_mock, 300, 1500)
+
+    return rr_mock
+
+
+def dfa_alpha1_from_rr(rr_ms: np.ndarray, scales: tuple | None = None) -> float:
+    """
+    Calcule DFA α₁ (Detrended Fluctuation Analysis, court terme).
+
+    DFA α₁ est l'exposant de scaling calculé sur les échelles courtes
+    (typiquement 4-16 battements), indicateur de la dynamique fractale
+    du rythme cardiaque corrélée au seuil aérobie.
+
+    Interprétation physiologique (Scharhag-Rosenberger et al.) :
+      α₁ < 0.75 : zone aérobie (équivalent lactate ~2 mmol/L)
+      α₁ ~ 1.0  : zone de transition aérobie/anaérobie
+      α₁ > 1.0  : zone anaérobie
+
+    Algorithme :
+      1. Intégration de la série RR centrée (marche aléatoire)
+      2. Division en fenêtres non chevauchantes de taille n
+      3. Détrending linéaire par fenêtre → calcul F(n) = RMS résidus
+      4. Régression log(F(n)) vs log(n) → pente = α₁
+
+    Parameters
+    ----------
+    rr_ms : intervalles RR en ms (array 1D)
+    scales : tuple (min_scale, max_scale) en nombre de battements
+             Par défaut (4, 16) — court terme standard pour DFA α₁
+
+    Returns
+    -------
+    float : exposant DFA α₁
+            np.nan si calcul impossible (données insuffisantes)
+    """
+    if scales is None:
+        scales = (4, 16)
+
+    min_scale, max_scale = scales
+    n_rr = len(rr_ms)
+
+    if n_rr < max_scale * 4:
+        return np.nan
+
+    # Centrer la série
+    rr_centered = rr_ms - rr_ms.mean()
+
+    # Intégration (profil cumulatif)
+    y = np.cumsum(rr_centered)
+
+    fluctuations = []
+    scale_values = range(min_scale, max_scale + 1)
+
+    for n in scale_values:
+        n_windows = n_rr // n
+        if n_windows < 2:
+            continue
+
+        # Couper la série en fenêtres de taille n
+        y_windowed = y[:n_windows * n].reshape(n_windows, n)
+
+        # Détrending linéaire par fenêtre
+        x = np.arange(n)
+        f_sq_sum = 0.0
+        for w in range(n_windows):
+            slope, intercept, _, _, _ = scipy_stats.linregress(x, y_windowed[w])
+            trend = intercept + slope * x
+            residuals = y_windowed[w] - trend
+            f_sq_sum += np.mean(residuals**2)
+
+        f_n = np.sqrt(f_sq_sum / n_windows)
+        fluctuations.append((n, f_n))
+
+    if len(fluctuations) < 3:
+        return np.nan
+
+    scales_arr = np.array([s for s, _ in fluctuations])
+    fluct_arr = np.array([f for _, f in fluctuations])
+
+    # Masque pour éviter log(0)
+    valid = fluct_arr > 0
+    if valid.sum() < 3:
+        return np.nan
+
+    # Régression log-log → pente = α₁
+    log_scales = np.log(scales_arr[valid])
+    log_fluct = np.log(fluct_arr[valid])
+    slope, _, r_value, _, _ = scipy_stats.linregress(log_scales, log_fluct)
+
+    # R² < 0.8 = calcul peu fiable
+    if r_value**2 < 0.8:
+        return np.nan
+
+    return float(slope)
