@@ -1,13 +1,30 @@
-numpy>=1.24.0
-pandas>=2.0.0
+# Coeur numerique
+numpy>=1.24.0,<3
+pandas>=2.0.0,<3
 scipy>=1.11.0
-pymc>=5.0.0
-pytensor>=2.18.0
-arviz>=0.17.0
-streamlit>=1.20.0
-ortools>=9.6.0
+pyarrow>=14.0.0
+
+# Inference bayesienne
+pymc>=5.20.0,<6
+pytensor>=2.30.0
+arviz>=0.20.0
+
+# Optimisation sous contraintes
+ortools>=9.10.0
+
+# Ingestion
 garmin-fit-sdk>=21.0.0
-plotly>=5.0.0
+requests>=2.31.0
+
+# Interface
+streamlit>=1.40.0
+plotly>=5.20.0
+
+# Config
 pyyaml>=6.0
-neurokit2>=0.2.7
-anthropic>=0.25.0
+
+# --- Optionnel : adaptateurs LLM du planificateur (Layer C) ---
+# Le parsing de contexte fonctionne en mode heuristique sans aucun de ces
+# paquets. Installer seulement si l'on veut activer un fournisseur :
+#   pip install anthropic   # adaptateur Anthropic
+#   pip install openai      # adaptateur OpenAI
