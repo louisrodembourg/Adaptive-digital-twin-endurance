@@ -28,7 +28,7 @@ except ImportError:
     HAS_ADVANCED = False
 
 
-from ..config import load_config, load_params as _shared_load_params
+from ..config import ConfigError, load_config, load_params as _shared_load_params
 from .timebase import active_duration_s, attach_timebase, dt_seconds, longest_contiguous_s
 
 
@@ -40,6 +40,22 @@ def load_params(config_path: str | Path | None = None) -> dict:
 # ═══════════════════════════════════════════════════════════════
 #  1. NETTOYAGE DU SIGNAL
 # ═══════════════════════════════════════════════════════════════
+
+def _target_speed_or_nan(cfg=None) -> float:
+    """
+    Allure cible, ou NaN tant que l'objectif n'est pas calibre.
+
+    EF specifique se mesure par rapport a une allure de course, qui se derive
+    elle-meme de la courbe de reference de l'athlete — laquelle s'ajuste sur
+    les seances. A la premiere ingestion cette allure n'existe donc pas
+    encore. Une metrique indisponible vaut NaN ; elle n'interrompt pas la
+    chaine de traitement.
+    """
+    try:
+        return (cfg or load_config()).goal.target_speed_ms
+    except ConfigError:
+        return np.nan
+
 
 def clean_signal(df: pd.DataFrame, params: dict | None = None,
                  version: str = 'v2') -> pd.DataFrame:
@@ -109,7 +125,7 @@ def efficiency_factor(df: pd.DataFrame) -> float:
     return df_run['speed_ms'].mean() / df_run['hr'].mean()
 
 
-def specific_ef(df: pd.DataFrame, params: dict | None = None) -> float:
+def specific_ef(df: pd.DataFrame, params: dict | None = None, cfg=None) -> float:
     """
     EF Spécifique = Vitesse / FC uniquement sur les segments
     courus à l'allure cible (3'40"/km ± tolérance).
@@ -120,7 +136,9 @@ def specific_ef(df: pd.DataFrame, params: dict | None = None) -> float:
     if params is None:
         params = load_params()
     
-    target_speed = load_config().goal.target_speed_ms
+    target_speed = _target_speed_or_nan(cfg)
+    if not np.isfinite(target_speed):
+        return np.nan
     tolerance = params['signal']['ef_pace_tolerance_pct'] / 100  # 0.05
     min_duration = params['signal']['ef_min_duration_s']       # 60s
     
@@ -217,7 +235,7 @@ def grade_adjusted_pace(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def specific_ef_gap(df: pd.DataFrame, params: dict | None = None) -> float:
+def specific_ef_gap(df: pd.DataFrame, params: dict | None = None, cfg=None) -> float:
     """
     EF Spécifique GAP = speed_gap_ms / FC uniquement sur les segments
     courus à l'allure cible (3'40"/km) APRÈS correction dénivelé.
@@ -228,7 +246,9 @@ def specific_ef_gap(df: pd.DataFrame, params: dict | None = None) -> float:
     if params is None:
         params = load_params()
 
-    target_speed = load_config().goal.target_speed_ms
+    target_speed = _target_speed_or_nan(cfg)
+    if not np.isfinite(target_speed):
+        return np.nan
     tolerance = params['signal']['ef_pace_tolerance_pct'] / 100
     min_duration = params['signal']['ef_min_duration_s']
 
@@ -332,7 +352,7 @@ def _weighted_ef(part: pd.DataFrame) -> float:
 #  4. TRIMP (Training Impulse) — Charge Interne
 # ═══════════════════════════════════════════════════════════════
 
-def compute_trimp(df: pd.DataFrame, params: dict | None = None) -> float:
+def compute_trimp(df: pd.DataFrame, params: dict | None = None, cfg=None) -> float:
     """
     TRIMP de Banister (exponentiel) :
     
@@ -345,9 +365,11 @@ def compute_trimp(df: pd.DataFrame, params: dict | None = None) -> float:
     if params is None:
         params = load_params()
     
-    cfg = load_config()
-    hr_max = cfg.athlete.hr_max
-    hr_rest = cfg.athlete.hr_rest
+    cfg = cfg or load_config()
+    # hr_reserve porte la garde de calibration : sans FC max ni FC repos le
+    # TRIMP n'a pas de sens, et mieux vaut le dire que produire un nombre.
+    cfg.athlete.hr_reserve
+    hr_max, hr_rest = cfg.athlete.hr_max, cfg.athlete.hr_rest
     # (b, c) derives du sexe : TRIMP = duree_min * dHR * b * exp(c * dHR).
     # Les deux coefficients viennent d'une seule source pour qu'ils ne
     # puissent plus etre intervertis independamment.
@@ -376,7 +398,7 @@ def compute_trimp(df: pd.DataFrame, params: dict | None = None) -> float:
 #  5. ZONES FC — Temps dans chaque zone
 # ═══════════════════════════════════════════════════════════════
 
-def compute_hr_zones(df: pd.DataFrame, params: dict | None = None) -> dict:
+def compute_hr_zones(df: pd.DataFrame, params: dict | None = None, cfg=None) -> dict:
     """
     Calcul du temps passé (en secondes et %) dans chaque zone FC.
     
@@ -387,7 +409,7 @@ def compute_hr_zones(df: pd.DataFrame, params: dict | None = None) -> dict:
     if params is None:
         params = load_params()
     
-    hr_max = load_config().athlete.hr_max
+    hr_max = (cfg or load_config()).athlete.hr_max
     zones_cfg = params['hr_zones']
     
     if 'hr' not in df.columns:
@@ -495,7 +517,7 @@ def normalized_power(df: pd.DataFrame, window: int = 30) -> float:
 #  7. RÉSUMÉ COMPLET D'UNE SÉANCE
 # ═══════════════════════════════════════════════════════════════
 
-def session_features(df: pd.DataFrame, params: dict | None = None) -> dict:
+def session_features(df: pd.DataFrame, params: dict | None = None, cfg=None) -> dict:
     """
     Calcule TOUTES les features d'une séance en un seul appel.
 
@@ -530,12 +552,12 @@ def session_features(df: pd.DataFrame, params: dict | None = None) -> dict:
 
         # Efficiency Factor
         'ef_global':            efficiency_factor(df),
-        'ef_specific':          specific_ef(df, params),
-        'ef_specific_gap':      specific_ef_gap(df, params),
+        'ef_specific':          specific_ef(df, params, cfg),
+        'ef_specific_gap':      specific_ef_gap(df, params, cfg),
 
         # Durabilité & Charge
         'cardiac_decoupling':   cardiac_decoupling(df, params),
-        'trimp':                compute_trimp(df, params),
+        'trimp':                compute_trimp(df, params, cfg),
         'normalized_power':     normalized_power(df),
 
         # DFA α₁ (proxy seuil aérobie)
@@ -545,7 +567,7 @@ def session_features(df: pd.DataFrame, params: dict | None = None) -> dict:
 
     # Zones aplaties en colonnes scalaires : une colonne portant un dict ne
     # survit pas proprement a un aller-retour Parquet.
-    for zone_name, zone in compute_hr_zones(df, params).items():
+    for zone_name, zone in compute_hr_zones(df, params, cfg).items():
         key = zone_name.split('_')[0]
         features[f'hr_zone_{key}_s'] = zone['seconds']
         features[f'hr_zone_{key}_pct'] = zone['pct']

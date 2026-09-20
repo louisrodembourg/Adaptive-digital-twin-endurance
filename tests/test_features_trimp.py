@@ -70,8 +70,25 @@ def test_female_coefficients_give_a_different_load(monkeypatch, hr_series):
     assert not math.isclose(loads["male"], loads["female"], rel_tol=1e-3)
 
 
-def test_trimp_is_zero_without_heart_rate():
+def test_trimp_is_zero_without_heart_rate(monkeypatch):
     from src.layer_a_signal import features
+
+    cfg = load_config()
+    cfg = replace(cfg, athlete=replace(cfg.athlete, hr_max=190.0, hr_rest=50.0))
+    monkeypatch.setattr(features, "load_config", lambda *a, **k: cfg)
 
     assert features.compute_trimp(pd.DataFrame({"hr": []})) == 0.0
     assert np.isnan(features.compute_trimp(pd.DataFrame({"speed": [1.0]})))
+
+
+def test_trimp_refuses_to_run_on_an_uncalibrated_athlete():
+    """
+    hr_max et hr_rest valaient 205 et 65, annotes « a calibrer », alors que
+    tout le TRIMP en depend. Mieux vaut une erreur qu'un nombre fonde sur des
+    constantes inventees.
+    """
+    from src.config import ConfigError
+    from src.layer_a_signal import features
+
+    with pytest.raises(ConfigError, match="hr_max"):
+        features.compute_trimp(pd.DataFrame({"hr": [150.0] * 60}))
