@@ -132,4 +132,14 @@ cython_debug/
 
 # macOS
 .DS_Store
-.data
+
+# --- Donnees (jamais versionnees : biometrie, GPS, artefacts derives) ---
+data/
+!data/.gitkeep
+data/cache/
+
+# Traces MCMC
+*.nc
+
+# Config d'outillage local
+CLAUDE.md
