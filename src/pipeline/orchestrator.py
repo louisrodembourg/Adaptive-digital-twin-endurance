@@ -338,6 +338,10 @@ def featurize(raw: RawSession, cfg: Config | None = None) -> dict:
     # une implementation independante, ce qui vaut mieux qu'une auto-assertion.
     reference = raw.summary.get("trimp_points")
     row["trimp_reference"] = _as_float(reference)
+    # FC minimale telle que l'appareil l'a enregistree. Le minimum du signal
+    # nettoye ne convient pas : Savitzky-Golay lisse justement les extremes,
+    # et releve ce minimum de plusieurs dizaines de battements.
+    row["hr_min_reported"] = _as_float(raw.summary.get("min_heartrate"))
     row["elevation_gain_m"] = _as_float(raw.summary.get("elevation_gain"))
     row["distance_km_reported"] = _as_float(raw.summary.get("total_distance"))
     return row
@@ -515,9 +519,12 @@ def run_pipeline(
         return report
 
     sessions = pd.DataFrame(rows)
-    if not existing.empty:
+    if resume and not existing.empty:
         sessions = pd.concat([existing, sessions], ignore_index=True)
-    sessions = sessions.drop_duplicates("session_id").sort_values("start_time")
+    # keep="last" : une seance recalculee remplace son ancienne version. Avec
+    # le defaut ("first"), --rebuild ne reconstruisait rien puisque les lignes
+    # existantes gagnaient la deduplication.
+    sessions = sessions.drop_duplicates("session_id", keep="last").sort_values("start_time")
     _write_parquet(sessions, cfg.paths.processed / SESSIONS_FILE)
 
     _write_parquet(build_daily_load(sessions), cfg.paths.processed / DAILY_LOAD_FILE)
@@ -540,15 +547,21 @@ def _write_calibration(cfg: Config, sessions: pd.DataFrame,
     Fige ce qui ne doit plus etre devine : FC max et repos estimees sur
     l'historique reel, et courbe de reference qui definit ce que vaut 1.0.
     """
+    # La FC de repos s'estime sur les minima de seance, pas sur les moyennes.
+    # Le premier percentile des FC MOYENNES vaut 115 bpm chez cet athlete,
+    # contre 62 pour les minima : ecrire 115 dans params.yaml ramenerait la
+    # reserve cardiaque de 132 a 79 bpm et annulerait tout travail sous
+    # 115 bpm, faussant l'integralite du TRIMP et donc de Layer B.
     hr_max = pd.to_numeric(sessions.get("hr_max"), errors="coerce").dropna()
-    hr_mean = pd.to_numeric(sessions.get("hr_mean"), errors="coerce").dropna()
+    hr_min = pd.to_numeric(sessions.get("hr_min_reported"), errors="coerce").dropna()
+    hr_min = hr_min[(hr_min > 25) & (hr_min < 120)]  # ecarte les artefacts de capteur
     payload = {
         "athlete_id": cfg.athlete.id,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "n_sessions": int(len(sessions)),
         "n_perf_observations": int(len(obs)),
         "hr_max_estimated": float(np.percentile(hr_max, 99)) if len(hr_max) else None,
-        "hr_rest_estimated": float(np.percentile(hr_mean, 1)) if len(hr_mean) else None,
+        "hr_rest_estimated": float(np.percentile(hr_min, 1)) if len(hr_min) else None,
         "reference_curve": reference.to_dict(),
         "provenance": provenance_of(sessions).to_dict(),
     }

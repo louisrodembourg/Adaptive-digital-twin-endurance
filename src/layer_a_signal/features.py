@@ -546,6 +546,11 @@ def session_features(df: pd.DataFrame, params: dict | None = None, cfg=None) -> 
         'distance_m':           df['distance_m'].max() if 'distance_m' in df.columns else np.nan,
         'hr_mean':              df.loc[mask, 'hr'].mean() if 'hr' in df.columns else np.nan,
         'hr_max':               df.loc[mask, 'hr'].max() if 'hr' in df.columns else np.nan,
+        # Minimum du signal NETTOYE : utile comme indicateur de qualite, mais
+        # ce n'est pas une FC de repos. Savitzky-Golay lisse les extremes et
+        # releve ce minimum de plusieurs dizaines de battements ; la FC de
+        # repos se lit dans min_heartrate publie par l'appareil.
+        'hr_min_smoothed':      df['hr'].min() if 'hr' in df.columns else np.nan,
         'speed_mean_kmh':       df.loc[mask, 'speed_kmh'].mean() if 'speed_kmh' in df.columns else np.nan,
         'power_mean':           df.loc[mask, 'power'].mean() if 'power' in df.columns else np.nan,
         'cadence_mean':         df.loc[mask, 'cadence'].mean() if 'cadence' in df.columns else np.nan,
