@@ -61,6 +61,48 @@ se raconterait comme un succès du modèle.
 
 ---
 
+## Ce que dit le postérieur
+
+Le modèle bayésien est ajusté par MCMC sur les 1 987 jours de charge et les
+85 points d'enveloppe. L'échantillonnage converge proprement — `r_hat` à
+1,0000 sur tous les paramètres, aucune divergence, ESS minimal de 746 — ce
+qui rend ses diagnostics interprétables.
+
+| paramètre | moyenne | écart-type | intervalle 94 % |
+|---|---:|---:|---|
+| τ₁ (fitness, jours) | 29,3 | 11,7 | [9,1 · 51,1] |
+| τ₂ (fatigue, jours) | 13,6 | 4,8 | [4,5 · 22,1] |
+| k₁ (gain fitness) | 0,050 | 0,032 | [0,007 · 0,112] |
+| k₂ (gain fatigue) | 0,050 | 0,040 | [−0,004 · 0,127] |
+| **k₁ − k₂ (effet net)** | **−0,000** | **0,010** | **[−0,020 · 0,017]** |
+
+**L'effet net de la charge d'entraînement sur la performance est
+indiscernable de zéro.** Ce n'est pas une estimation imprécise faute de
+données : l'intervalle est étroit, centré sur zéro, et issu d'un
+échantillonnage convergé.
+
+**k₁ et k₂ sont corrélés à 0,986.** Les données ne distinguent pas un gain de
+fitness élevé compensé par une pénalité de fatigue élevée d'une paire de
+gains modestes — seule leur différence est contrainte. Le postérieur de τ₁ ne
+se resserre que de 41 % par rapport à son prior : les constantes de temps ne
+sont pas identifiées non plus.
+
+**L'intervalle de prédiction à 95 % ne couvre que 34 % des observations.** Le
+modèle est massivement surconfiant.
+
+Un postérieur plat est un résultat, pas un échec. C'est le seul usage honnête
+de l'inférence bayésienne ici : montrer ce que les données contraignent
+réellement, là où un ajustement ponctuel aurait présenté k₁ = 0,050 comme une
+valeur estimée.
+
+> **Note d'ingénierie.** Cette géométrie coûte cher : avec des paramètres
+> corrélés à 0,99, NUTS ne parcourt la crête qu'à tout petits pas, et le
+> premier ajustement a demandé **22 heures**. Échantillonner l'effet net
+> plutôt que chaque gain — même modèle, autre paramétrisation — le ramène à
+> **26 minutes**, soit un facteur 51.
+
+---
+
 ## Architecture
 
 ```mermaid
@@ -192,11 +234,13 @@ mesurée : le modèle devait deviner une capacité de course à partir d'une
 charge très majoritairement cycliste. La puissance critique du vélo est
 désormais mesurée aussi, ce qui atténue le déséquilibre sans l'effacer.
 
-**k₂ ressort négatif** — une fatigue élevée améliorerait la performance. Le
-conditionnement de la matrice vaut 5, ce qui disculpe la colinéarité : il
-s'agit d'endogénéité du moment de mesure, les séances rapides tombant pendant
-les blocs de charge. Le signe n'est pas contraint dans le modèle, parce que
-le forcer masquerait le résultat.
+**Le modèle n'est pas identifié.** k₁ et k₂ sont corrélés à 0,986 dans le
+postérieur, et les constantes de temps ne se resserrent que de 41 % par
+rapport à leur prior. À constantes de temps *fixées*, la colinéarité paraît
+modérée — le conditionnement de la matrice des moindres carrés vaut 5 — mais
+dès que τ est échantillonné, τ et k se compensent et la dégénérescence
+apparaît. Seul le postérieur la révèle. Le signe de k₂ n'est pas contraint
+dans le modèle : le forcer masquerait précisément ce résultat.
 
 **Un seul athlète.** Deux autres sont retenus dans
 `config/opendata_manifest.json` mais ne servent pas encore de contrôle.
