@@ -89,7 +89,9 @@ def test_model_builds():
     daily, obs, _ = _simulated()
     model = build_banister_model(daily, obs)
     names = {v.name for v in model.free_RVs}
-    assert {"tau2", "delta", "k1", "k2", "p0", "sigma_obs"} <= names
+    # k1 n'est plus echantillonne directement : c'est k_net + k2.
+    assert {"tau2", "delta", "k_net", "k2", "p0", "sigma_obs"} <= names
+    assert "k1" not in names
 
 
 @pytest.mark.skipif(not HAS_PYMC, reason="PyMC absent")
@@ -154,6 +156,30 @@ def test_observations_outside_the_calendar_are_dropped():
 
 
 # -- le test qui prouve que l'inference fonctionne -------------------------
+
+@pytest.mark.mcmc
+@pytest.mark.slow
+@pytest.mark.skipif(not HAS_PYMC, reason="PyMC absent")
+def test_net_effect_is_better_determined_than_either_gain():
+    """
+    Le coeur du diagnostic d'identifiabilite.
+
+    Fitness et fatigue etant correles, seul leur effet NET est contraint par
+    les donnees. Sur l'historique reel, k1 et k2 ressortent correles a 0,979 :
+    les donnees ne distinguent pas un gain de fitness eleve compense par une
+    penalite de fatigue elevee d'une paire de gains modestes.
+    """
+    from src.layer_b_twin.bayesian_model import assess_identifiability, sample_model
+
+    daily, obs, _ = _simulated()
+    trace = sample_model(build_banister_model(daily, obs),
+                         draws=600, tune=800, chains=2, target_accept=0.95)
+    report = assess_identifiability(trace)
+
+    assert report.summary.loc["k_net", "sd"] < report.summary.loc["k1", "sd"]
+    assert report.summary.loc["k_net", "sd"] < report.summary.loc["k2", "sd"]
+    assert abs(report.k1_k2_correlation) > 0.8
+
 
 @pytest.mark.mcmc
 @pytest.mark.slow
