@@ -56,8 +56,34 @@ par canal et la prevision ne bouge pas d'un bit quand on remplace les
 covariables. Un test le mesure, et `SPECS` dans `foundation.py` porte ce que
 chaque modele fait reellement — pas ce que sa fiche promet.
 
+**Une charge ne s'oppose qu'a une cible de sa discipline.** Le resultat nul le
+plus cite du depot opposait une charge aux deux tiers cycliste a une vitesse
+en course a pied. Apparie correctement — charge velo contre puissance velo —
+le modele de charge bat « predire la moyenne » de +0,339 avec un intervalle
+[+0,055 · +0,524]. Les variantes portent leur discipline dans leur nom, et la
+charge de course sert de controle negatif sur la cible velo : si elle y
+predisait quelque chose, c'est une fuite qu'il faudrait chercher, pas un
+transfert physiologique.
+
+**Un resultat nul s'accompagne de son plancher.** Affirmer l'absence d'effet
+sans dire quel effet le protocole saurait voir, c'est confondre « on n'a rien
+trouve » avec « il n'y a rien ». `sensitivity.py` injecte dans l'enveloppe
+reelle un effet d'amplitude connue, de la forme que le modele postule, et rend
+le plus petit que l'intervalle apparie distingue du hasard : 2 sigma contre la
+persistance sur la cible course, 1 sigma sur la cible velo. Ce plancher est
+OPTIMISTE, le signal injecte ayant exactement la forme ajustee.
+
+**Un maximum ne se prend pas deux fois.** `perf_index` prenait un maximum sur
+les durees avant que l'enveloppe en reprenne un sur 42 jours, d'ou
+l'autocorrelation a 0,97 qui rend la persistance imbattable par construction.
+Les durees sont publiees une par une, et une duree comptant moins de quarante
+observations est ecartee ET rapportee comme ecartee.
+
 **Les tests n'ecrivent jamais dans `data/`.** Une fixture autouse le verifie
-apres chaque test et echoue sinon.
+apres chaque test et echoue sinon. Le module de sensibilite ne deroge pas :
+l'enveloppe perturbee n'existe qu'en memoire, et l'interface ne rend que des
+statistiques — jamais une serie qu'on pourrait ecrire et confondre plus tard
+avec une mesure.
 
 ## Organisation
 
@@ -68,7 +94,8 @@ src/layer_a_signal/      nettoyage, features, base de temps, performance
 src/layer_b_twin/        modele de charge et modele bayesien
 src/layer_c_planner/     contraintes de securite, optimiseur, parsing LLM
 src/pipeline/            orchestrateur et provenance
-src/evaluation/          metriques, references, validation, rapport
+src/evaluation/          metriques, references, validation, rapport,
+                         modeles de fondation, sensibilite
 app/                     tableau de bord Streamlit
 ```
 
@@ -78,7 +105,7 @@ app/                     tableau de bord Streamlit
 pip install -e ".[dev]"
 python -m src.cli ingest        # construire les artefacts
 python -m src.cli calibrate     # reporter les estimations dans params.yaml
-python -m src.cli evaluate      # tableaux d'evaluation + provenance
+python -m src.cli evaluate      # cinq protocoles, planchers, provenance
 pytest                          # hors ligne par defaut
 
 pip install -e ".[tsfm]"        # torch + Chronos-2 + TTM, optionnels

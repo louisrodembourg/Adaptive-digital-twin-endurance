@@ -35,6 +35,12 @@ soi — c'est pour cela que ce dépôt ne publie jamais un R² d'ajustement seul
 **Ce qui prédit, c'est l'inertie.** La persistance obtient +0,318, et aucun
 modèle de charge ne la bat.
 
+Cette dernière phrase demande une précision que le dépôt a longtemps omise :
+battre la persistance sur une cible autocorrélée à 0,97 exigerait un effet de
+charge **deux fois plus dispersé que l'enveloppe entière**. Le constat tient,
+mais la comparaison qui le porte n'a presque aucune puissance, et c'est
+mesuré — voir [le plancher de détectabilité](#le-plancher-de-détectabilité-et-ce-quil-fait-à-la-conclusion).
+
 ---
 
 ## Ce qui rend ce résultat possible
@@ -278,6 +284,185 @@ régression de la cible ou du découpage, pas un résultat.
 
 ---
 
+## Apparier la charge à la cible, et mesurer ce que le protocole sait voir
+
+Le déséquilibre entre disciplines figurait déjà dans les limites connues de ce
+dépôt. Ce qui manquait, c'est l'expérience : sur la fenêtre d'évaluation,
+
+| discipline | part du TRIMP |
+|---|---:|
+| Bike + VirtualRide | **68,5 %** |
+| Run | 30,2 % |
+| autres (natation, marche, kayak) | 1,3 % |
+
+alors que l'index de performance est un **rapport de vitesses en course à
+pied**. Un modèle à coefficient unique doit donc trouver un `k₁` qui vaille à
+la fois pour un kilojoule de vélo et pour un kilomètre de course. Le transfert
+vélo → course est partiel et de constante de temps différente, pendant que la
+fatigue se cumule pleinement : le coefficient moyenne deux transferts
+incomparables et sort zéro.
+
+`build_daily_load` ventile désormais la charge en `trimp_run`, `trimp_bike` et
+`trimp_other`, qui somment exactement à `trimp` — la colonne de référence reste
+intacte et les six lignes publiées plus haut se reproduisent au chiffre près.
+
+### Sur la cible course : la bonne direction, sans la démonstration
+
+| variante | R² hors éch. (horizon 28 j) | R² ajustement |
+|---|---:|---:|
+| persistance | **+0,654** | −0,008 |
+| **banister course seule** t60/15 | **+0,173** | +0,216 |
+| banister course seule t42/12 | +0,124 | +0,139 |
+| tendance temporelle | +0,122 | +0,281 |
+| prédire la moyenne | +0,090 | 0,000 |
+| banister t42/12 (charge totale) | −0,017 | +0,100 |
+| banister par sport t42/12 | −0,155 | +0,305 |
+| banister + tendance t42/12 | −0,268 | +0,398 |
+
+Restreindre la charge à la course fait passer le modèle de −0,017 à +0,124,
+devant « prédire la moyenne ». Mais l'intervalle refuse de conclure :
+
+| variante | contre | gain | IC 95 % | P(gain) |
+|---|---|---:|---|---:|
+| course seule | charge totale | +0,139 | [−0,117 · +0,395] | 0,852 |
+| course seule | prédire la moyenne | +0,038 | [−0,144 · +0,189] | 0,684 |
+| course seule | **persistance** | **−1,533** | [−6,279 · +0,048] | 0,032 |
+
+Deux variantes échouent franchement, et c'est instructif. **Un couple de
+coefficients par discipline** obtient le meilleur R² d'ajustement du tableau
+(+0,305) et l'un des pires hors échantillon (−0,155) : sept paramètres sur
+85 points autocorrélés, du surapprentissage fabriqué à la main. **Une tendance
+temporelle** mise en concurrence n'absorbe pas la charge, elle ajoute de la
+variance (−0,268) — l'athlète passe du vélo à la course en 2018 et toute la
+fenêtre est une transition de sport, mais ce confondant n'est pas capté par un
+terme linéaire. Il reste ouvert.
+
+### La persistance s'effondre quand l'effort s'allonge
+
+`perf_index` prenait un maximum **sur les durées** avant que l'enveloppe en
+reprenne un sur 42 jours : un double cliquet, d'où l'autocorrélation à 0,97 qui
+rend la persistance imbattable par construction. Un plafond à 5 minutes dépend
+surtout de la puissance anaérobie, un plafond à 45 minutes de l'endurance
+aérobie. Les observations par durée existaient déjà dans `mean_max_speed` ;
+elles sont désormais publiées une par une.
+
+| durée | obs. | jours | persistance | moyenne | course seule | charge totale |
+|---|---:|---:|---:|---:|---:|---:|
+| 300 s | 90 | 545 | +0,637 | +0,095 | +0,068 | +0,007 |
+| 600 s | 90 | 545 | **+0,697** | +0,122 | +0,204 | +0,192 |
+| 1200 s | 89 | 545 | +0,506 | +0,077 | +0,104 | −0,046 |
+| 1800 s | 82 | 520 | **+0,170** | +0,028 | +0,081 | −0,279 |
+| 2700 s | 59 | 377 | +0,384 | +0,053 | +0,115 | −0,196 |
+| 3600 s | 9 | — | écartée : neuf observations ne font pas un R² |
+
+La persistance tombe de +0,697 à 600 s à +0,170 à 1800 s, et c'est le seul
+endroit où l'écart avec le modèle de charge cesse d'exclure zéro — à 300 s
+l'intervalle vaut [−6,73 · **−0,35**] et P(gain) 0,000, à 1800 s il vaut
+[−2,05 · +0,43] et P(gain) 0,398. Les deux modèles deviennent indistinguables
+non parce que la charge progresse, mais parce que la persistance s'effondre.
+
+### La cible vélo : l'appariement que le dépôt n'avait jamais fait
+
+La puissance critique du vélo est mesurée depuis 2016 — **417 observations de
+`cp20_w`, espacées de deux jours médians, sur trois ans et demi** — et n'avait
+jamais servi de cible, parce que `build_perf_observations` filtre sur `is_run`.
+C'est pourtant le seul appariement où la discipline qui porte la charge est
+celle dont on mesure la performance, avec 4,6 fois plus d'observations que la
+course et deux fois plus de plis.
+
+| variante | R² hors éch. (38 plis) | R² ajustement |
+|---|---:|---:|
+| persistance | **+0,523** | −2,457 |
+| moyenne mobile exponentielle | +0,436 | −2,174 |
+| **banister vélo seul** t42/12 | **+0,279** | +0,433 |
+| banister t42/12 (charge totale) | +0,218 | +0,388 |
+| fitness seul t42 | +0,212 | +0,316 |
+| prédire la moyenne | −0,090 | 0,000 |
+| banister **course** seule t42/12 | **−0,956** | +0,050 |
+
+Et cette fois les intervalles tranchent :
+
+| variante | contre | gain | IC 95 % | P(gain) |
+|---|---|---:|---|---:|
+| vélo seul | **charge de course** | **+0,631** | **[+0,407 · +0,742]** | **1,000** |
+| vélo seul | **prédire la moyenne** | **+0,339** | **[+0,055 · +0,524]** | **0,986** |
+| vélo seul | charge totale | +0,078 | [−0,143 · +0,248] | 0,761 |
+| vélo seul | persistance | −0,513 | [−2,161 · +0,137] | 0,080 |
+
+Trois choses s'y lisent, et ce sont les premiers résultats de charge de ce
+dépôt qui survivent à leur propre intervalle.
+
+**Apparier la discipline de la charge à celle de la cible vaut +0,631 de
+compétence, avec P(gain) = 1,000.** C'est aussi un contrôle de validité
+discriminante : la charge de course ne prédit *pas* une puissance en vélo
+(−0,956), ce qui est la bonne réponse. Si elle l'avait prédite, il aurait fallu
+chercher une fuite dans l'alignement des dates avant de crier au transfert
+physiologique.
+
+**Le modèle de charge bat « prédire la moyenne » de +0,339, intervalle
+[+0,055 · +0,524].** Sur la cible course il ne l'avait jamais fait de façon
+démontrable. Il existe donc bien un effet de charge mesurable chez cet athlète
+— là où la charge et la performance parlent de la même discipline.
+
+**Il reste battu par la persistance**, mais plus de façon décisive : P(gain)
+passe de 0,032 sur la cible course à 0,080 ici, et l'intervalle contient zéro.
+
+### Le plancher de détectabilité, et ce qu'il fait à la conclusion
+
+Tous ces intervalles sont larges, ce qui pose la question que le dépôt n'avait
+jamais posée : **quel effet ce protocole saurait-il voir ?** Sans ce nombre,
+« on n'a rien trouvé » et « il n'y a rien » sont indistinguables, et le second
+ne se déduit pas du premier.
+
+`src/evaluation/sensitivity.py` ajoute à l'enveloppe **réelle** un effet de
+charge **synthétique** d'amplitude connue — `fitness − fatigue` sur la charge de
+la discipline testée, soit exactement la forme que le modèle postule — puis
+repasse le protocole inchangé. `δ` s'exprime en écarts-types d'enveloppe.
+
+| | contre « prédire la moyenne » | contre la persistance |
+|---|---|---|
+| cible **course** (18 plis) | plancher **0,50 σ** | plancher **2,00 σ** |
+| cible **vélo** (38 plis) | **effet déjà vu sans injection** | plancher **1,00 σ** |
+
+Quatre lectures, dont la dernière corrige la façon dont ce dépôt présentait son
+propre résultat.
+
+Sur la cible course, le protocole exclut tout effet banisterien supérieur à
+**0,5 σ** par rapport à la moyenne — une borne falsifiable, là où « rien
+trouvé » n'en est pas une.
+
+Pour battre la persistance sur cette même cible, il faudrait un effet **deux
+fois plus dispersé que l'enveloppe entière**. Autrement dit : « aucun modèle de
+charge ne bat la persistance » est vrai, mais cette comparaison n'a presque
+aucune puissance. La persistance est quasi imbattable sur une cible à 0,97
+d'autocorrélation, et l'effet injecté est lui-même lisse — deux moyennes
+mobiles exponentielles —, donc la persistance le suit. Le constat tient ; ce
+qu'il démontre est bien plus mince qu'il n'y paraissait.
+
+Sur la cible vélo le plancher tombe de moitié, à **1,00 σ**, grâce aux 38 plis
+et aux 417 observations. Et contre la moyenne il n'y a plus de plancher à
+mesurer : l'effet est détecté **sans aucune injection**, dans les données
+réelles.
+
+Le plancher est de surcroît **optimiste** : le signal injecté a précisément la
+forme que le prédicteur ajuste, le cas le plus favorable imaginable. Un effet
+réel de forme différente devrait être plus grand encore pour être vu.
+
+### Ce que cela change
+
+Le résultat nul de ce dépôt n'est pas annulé, il est **circonscrit**. Il portait
+sur une cible de course opposée à une charge aux deux tiers cycliste, mesurée
+par un protocole dont on sait maintenant qu'il ne pouvait pas trancher. Apparié
+correctement, le modèle de charge montre un effet qui survit à son intervalle.
+Il perd toujours contre la persistance — mais la persistance ne planifie rien,
+et c'est le sujet du paragraphe suivant.
+
+```bash
+python -m src.cli evaluate       # les cinq protocoles et les quatre planchers
+```
+
+---
+
 ## Architecture
 
 ```mermaid
@@ -303,15 +488,15 @@ flowchart TB
     subgraph STORE["Artefacts"]
         direction LR
         S1[("sessions")]
-        S2[("daily_load")]
-        S3[("perf_observations")]
+        S2[("daily_load<br/><i>run · bike · other</i>")]
+        S3[("perf_observations<br/><i>+ index par durée</i>")]
     end
 
     ENV["envelope.py<br/><i>enveloppe glissante<br/>grille jour ou observation</i>"]
 
     subgraph B["Layer B — Jumeau"]
         direction LR
-        LOAD["load_model.py<br/><i>CTL · ATL · fraîcheur</i>"]
+        LOAD["load_model.py<br/><i>CTL · ATL · fraîcheur<br/>courbes par discipline</i>"]
         BAYES["bayesian_model.py<br/><i>PyMC · convolution</i>"]
         LOAD --> BAYES
     end
@@ -320,10 +505,12 @@ flowchart TB
         direction LR
         BASE["baselines.py<br/><i>déclarées d'avance</i>"]
         FND["foundation.py<br/><i>Chronos-2 · TTM<br/>ablation de covariable</i>"]
-        VALID["validation.py<br/><i>blocs · horizon 28 j</i>"]
+        SENS["sensitivity.py<br/><i>plancher de détectabilité</i>"]
+        VALID["validation.py<br/><i>blocs · horizon 28 j · par durée</i>"]
         REPORT["report.py<br/><i>bootstrap apparié par blocs</i>"]
         BASE --> VALID --> REPORT
         FND --> VALID
+        REPORT --> SENS
     end
 
     subgraph C["Layer C — Planificateur"]
@@ -346,7 +533,7 @@ flowchart TB
 
     classDef result fill:#16324f,stroke:#4c8bf5,stroke-width:2px,color:#fff
     classDef guard fill:#4a3620,stroke:#e0a355,stroke-width:2px,color:#fff
-    class REPORT,BAYES,FND result
+    class REPORT,BAYES,FND,SENS result
     class PROV,TB guard
 ```
 
@@ -361,7 +548,7 @@ python -m src.cli screen-athletes --n 200   # trouver un athlète exploitable
 python -m src.cli ingest                    # construire les trois artefacts
 python -m src.cli calibrate                 # reporter les estimations
 python -m src.cli state                     # résumer ce qui existe
-python -m src.cli evaluate                  # confronter chaque variante
+python -m src.cli evaluate                  # quatre protocoles + planchers
 
 streamlit run app/main_dashboard.py
 pytest                                      # hors ligne par défaut
@@ -414,11 +601,14 @@ les données de cet athlète.
 
 ## Limites connues
 
-**Le vélo pèse 80 % de la charge, la course seulement 13 %.** Pourtant la
-course est longtemps restée la seule discipline où la performance était
-mesurée : le modèle devait deviner une capacité de course à partir d'une
-charge très majoritairement cycliste. La puissance critique du vélo est
-désormais mesurée aussi, ce qui atténue le déséquilibre sans l'effacer.
+**Le vélo pèse 80 % de la charge totale, la course seulement 13 %.** La
+course est longtemps restée la seule discipline où la performance servait de
+cible : le modèle devait deviner une capacité de course à partir d'une charge
+très majoritairement cycliste. La puissance critique du vélo était mesurée
+depuis 2016 mais jamais évaluée, `build_perf_observations` filtrant sur
+`is_run` ; elle sert désormais de cible à part entière, et l'écart mesuré
+entre les deux appariements est devenu le résultat central de ce dépôt. Le
+déséquilibre subsiste tel quel **sur la cible course**, lui.
 
 **Le modèle n'est pas identifié.** k₁ et k₂ sont corrélés à 0,986 dans le
 postérieur, et les constantes de temps ne se resserrent que de 41 % par
@@ -433,7 +623,23 @@ dans le modèle : le forcer masquerait précisément ce résultat.
 
 **L'enveloppe est autocorrélée par construction**, donc facile à prédire. Le
 +0,318 de la persistance mesure l'inertie, pas une compréhension de la
-physiologie.
+physiologie — et le plancher de détectabilité chiffre ce que cela coûte : il
+faudrait un effet de charge de 2 σ pour la battre de façon démontrable sur la
+cible course.
+
+**Le confondant de transition de sport reste ouvert.** L'athlète passe du vélo
+à la course en 2018, et toute la fenêtre d'évaluation de la cible course est
+cette transition : une progression due à l'apprentissage moteur y est
+indiscernable d'une progression due à la charge. Une tendance temporelle mise
+en concurrence n'absorbe rien (−0,268), ce qui écarte la forme la plus simple
+du confondant, pas le confondant lui-même.
+
+**La cible vélo n'est pas un effort maximal déclaré.** `cp20_w` est la
+meilleure puissance de vingt minutes d'une sortie, sans le garde-fou
+cardiaque que `performance.py` applique à la course. Une enveloppe glissante
+prend un maximum, donc une sortie facile ne peut pas abaisser la cible — mais
+rien ne garantit que les 417 observations soient des tests, et le +0,279 doit
+se lire avec cette réserve.
 
 **Les modèles de fondation reçoivent la charge future.** C'est délibéré — la
 question posée est « la charge porte-t-elle de l'information sur la
@@ -474,8 +680,21 @@ documentées. Le détail est dans [`AGENTS.md`](AGENTS.md).
 - **Aucune capacité annoncée n'est crue sur parole.** L'« intégration de
   variables exogènes » de TTM est inerte en zero-shot ; un test le mesure en
   remplaçant les covariables et en vérifiant que la sortie ne bouge pas.
+- **Un résultat nul s'accompagne de son plancher.** Affirmer l'absence d'effet
+  sans dire quel effet le protocole saurait voir, c'est confondre « on n'a
+  rien trouvé » avec « il n'y a rien ». `sensitivity.py` injecte un effet
+  d'amplitude connue dans l'enveloppe réelle et rend le plus petit que
+  l'intervalle apparié distingue du hasard.
+- **Une charge ne s'oppose qu'à une cible de sa discipline.** Opposer une
+  charge aux deux tiers cycliste à une vitesse en course a produit le résultat
+  nul le plus cité de ce dépôt. Les variantes portent désormais leur
+  discipline dans leur nom, et la charge de course sert de contrôle négatif
+  sur la cible vélo : si elle y prédisait quoi que ce soit, il faudrait
+  chercher une fuite avant de parler de transfert.
 - **Les tests n'écrivent jamais dans `data/`** ; une fixture le vérifie après
-  chaque test.
+  chaque test. Le module de sensibilité ne déroge pas : l'enveloppe perturbée
+  n'existe qu'en mémoire et l'interface ne rend que des statistiques, jamais
+  une série qu'on pourrait confondre plus tard avec une mesure.
 
 Le noyau de convolution du modèle bayésien est testé contre le filtre
 récursif de `load_model.py` à 1e-10 près : une seule source de vérité pour la
@@ -492,6 +711,10 @@ CP-SAT · `Streamlit` · `Plotly` · `pytest` · `ruff`
 
 En option, pour les références à modèle de fondation : `torch` ·
 `chronos-forecasting` · `granite-tsfm`.
+
+Côté évaluation, cinq protocoles sortent d'une seule commande : blocs
+positionnels, horizon calendaire, enveloppe par durée d'effort, cible vélo, et
+plancher de détectabilité.
 
 Données : [GoldenCheetah OpenData](https://osf.io/6hfpz/), DOI
 [10.17605/OSF.IO/6HFPZ](https://doi.org/10.17605/OSF.IO/6HFPZ).
