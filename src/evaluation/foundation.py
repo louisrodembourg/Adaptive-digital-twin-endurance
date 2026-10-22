@@ -431,7 +431,7 @@ def is_available(model: str) -> bool:
 
 @dataclass
 class Timing:
-    """Latences mesurees, pour que le README cite des chiffres de cette machine."""
+    """Latences mesurees, pour citer des chiffres de cette machine et non d'un article."""
 
     calls: int = 0
     seconds: float = 0.0

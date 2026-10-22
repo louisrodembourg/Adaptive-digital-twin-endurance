@@ -115,6 +115,11 @@ avec une mesure.
 ## Organisation
 
 ```
+README.md                presentation du projet
+docs/resultats.md        journal complet des mesures
+docs/methode.md          protocoles, limites, garde-fous
+docs/architecture.md     modules, flux, mise en route
+
 src/config.py            configuration unique, mise en cache
 src/ingestion/           acces au jeu de donnees public (cache-first, md5)
 src/layer_a_signal/      nettoyage, features, base de temps, performance
@@ -143,6 +148,15 @@ python -m src.cli evaluate --models chronos2,ttm
 ruff check src app tests
 streamlit run app/main_dashboard.py
 ```
+
+## Documentation
+
+`README.md` est la presentation du projet, pour un lecteur qui le decouvre :
+concis, et aucun chiffre qui ne soit reproductible par une commande. Le
+journal complet des mesures vit dans `docs/resultats.md`, les protocoles et
+garde-fous dans `docs/methode.md`, l'architecture dans
+`docs/architecture.md`. Un resultat nouveau s'ecrit dans `docs/`, et ne
+remonte au README que s'il change ce que le projet conclut.
 
 ## Style
 
