@@ -79,6 +79,16 @@ l'autocorrelation a 0,97 qui rend la persistance imbattable par construction.
 Les durees sont publiees une par une, et une duree comptant moins de quarante
 observations est ecartee ET rapportee comme ecartee.
 
+**Un resultat sur un athlete est une anecdote.** `cli cohort` rejoue
+l'experience sur les athletes du cache et rend la DISTRIBUTION des resultats,
+jamais leur moyenne — elle melangerait des historiques tres inegaux. Treize
+athletes ont ainsi montre que l'effet de charge mesure chez l'athlete de
+reference ne se generalise pas : mediane nulle, test du signe a 1,000, mais
+quatre intervalles qui excluent zero en faveur de la charge et aucun contre.
+L'heterogeneite est reelle et non un defaut de mesure — les non detectes sont
+centres sur -0,054, donc nuls, et non positifs-mais-noyes. La domination de la
+persistance, elle, se replique a p = 0,003.
+
 **Les tests n'ecrivent jamais dans `data/`.** Une fixture autouse le verifie
 apres chaque test et echoue sinon. Le module de sensibilite ne deroge pas :
 l'enveloppe perturbee n'existe qu'en memoire, et l'interface ne rend que des
@@ -95,7 +105,7 @@ src/layer_b_twin/        modele de charge et modele bayesien
 src/layer_c_planner/     contraintes de securite, optimiseur, parsing LLM
 src/pipeline/            orchestrateur et provenance
 src/evaluation/          metriques, references, validation, rapport,
-                         modeles de fondation, sensibilite
+                         modeles de fondation, sensibilite, cohorte
 app/                     tableau de bord Streamlit
 ```
 
@@ -106,6 +116,7 @@ pip install -e ".[dev]"
 python -m src.cli ingest        # construire les artefacts
 python -m src.cli calibrate     # reporter les estimations dans params.yaml
 python -m src.cli evaluate      # cinq protocoles, planchers, provenance
+python -m src.cli cohort        # replication sur le cache d'athletes
 pytest                          # hors ligne par defaut
 
 pip install -e ".[tsfm]"        # torch + Chronos-2 + TTM, optionnels

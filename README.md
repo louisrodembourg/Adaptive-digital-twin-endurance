@@ -33,7 +33,8 @@ sur le mauvais conditionnement du modèle fitness-fatigue.
 soi — c'est pour cela que ce dépôt ne publie jamais un R² d'ajustement seul.
 
 **Ce qui prédit, c'est l'inertie.** La persistance obtient +0,318, et aucun
-modèle de charge ne la bat.
+modèle de charge ne la bat. C'est le constat le plus robuste du dépôt : il se
+réplique sur treize athlètes, un seul au-dessus, test du signe à p = 0,003.
 
 Cette dernière phrase demande une précision que le dépôt a longtemps omise :
 battre la persistance sur une cible autocorrélée à 0,97 exigerait un effet de
@@ -454,11 +455,117 @@ Le résultat nul de ce dépôt n'est pas annulé, il est **circonscrit**. Il por
 sur une cible de course opposée à une charge aux deux tiers cycliste, mesurée
 par un protocole dont on sait maintenant qu'il ne pouvait pas trancher. Apparié
 correctement, le modèle de charge montre un effet qui survit à son intervalle.
-Il perd toujours contre la persistance — mais la persistance ne planifie rien,
-et c'est le sujet du paragraphe suivant.
+
+Reste à savoir si cet effet est un fait ou une particularité de cet athlète :
+la section suivante le confronte à treize autres, et la réponse est moins
+flatteuse que ce tableau.
 
 ```bash
 python -m src.cli evaluate       # les cinq protocoles et les quatre planchers
+```
+
+---
+
+## Ce que treize autres athlètes en disent
+
+Le résultat ci-dessus tient sur **un athlète et 38 plis**. C'est une anecdote
+tant qu'il n'a pas été confronté à d'autres, et le cache OpenData en contient
+62. Quinze passent les critères — assez d'observations de puissance, assez
+d'historique pour un protocole à horizon — et treize produisent assez de plis
+pour compter.
+
+Tout ce dont l'expérience a besoin se trouve dans le `<uuid>.json` de chaque
+archive : date, discipline, puissance critique de vingt minutes, et un TRIMP.
+Décoder les CSV de 62 athlètes coûterait des heures pour la même réponse. La
+contrepartie est déclarée et vérifiée : la charge employée est celle de
+GoldenCheetah (`trimp_points`), corrélée à **0,982** avec le TRIMP du dépôt
+chez l'athlète de référence (0,984 sur le vélo), pour un rapport médian de
+0,938. Suffisant pour savoir si une relation se réplique ; insuffisant pour
+publier un coefficient.
+
+### L'effet ne se réplique pas comme fait de population
+
+| comparaison | athlètes | gain médian | Q1 · Q3 | gain > 0 | IC > 0 | IC < 0 | p signe |
+|---|---:|---:|---|---:|---:|---:|---:|
+| charge vélo / **moyenne** | 13 | −0,008 | [−0,058 · +0,314] | 6/13 | **4** | **0** | 1,000 |
+| charge vélo / **persistance** | 13 | −1,376 | [−1,850 · −0,592] | 1/13 | 0 | 6 | **0,003** |
+| charge vélo / charge course | 6 | +0,418 | [−0,115 · +0,596] | 4/6 | 2 | 0 | 0,688 |
+
+La médiane est nulle et le test du signe vaut 1,000 : **l'effet mesuré chez
+l'athlète de référence n'est pas un fait général.** Il fallait le savoir avant
+d'en dépendre.
+
+Mais ce n'est pas du bruit non plus. **Quatre athlètes sur treize ont un
+intervalle qui exclut zéro en faveur de la charge, et aucun n'en a un qui
+l'exclut contre.** Sous l'hypothèse du hasard, avec des intervalles à 95 %, on
+attendrait environ 0,3 de chaque côté. L'asymétrie est le résultat.
+
+| athlète | jours | puiss. | plis | R² charge | R² moyenne | gain | IC 95 % |
+|---|---:|---:|---:|---:|---:|---:|---|
+| 250ee69b | 437 | 227 | 12 | +0,420 | −0,040 | **+0,442** | **[+0,173 · +0,665]** |
+| 9e4573b1 | 1213 | 417 | 38 | +0,283 | −0,090 | **+0,342** | **[+0,060 · +0,526]** |
+| 36cdfd30 | 877 | 485 | 27 | +0,408 | +0,128 | **+0,321** | **[+0,181 · +0,458]** |
+| bc363cef | 692 | 795 | 19 | +0,172 | +0,009 | **+0,165** | **[+0,020 · +0,290]** |
+| 7c3be9dc | 470 | 169 | 11 | +0,272 | −0,061 | +0,314 | [−0,032 · +0,534] |
+| 537ba4dd | 688 | 418 | 19 | +0,099 | +0,089 | +0,011 | [−0,279 · +0,158] |
+| 1feeb5c6 | 1168 | 601 | 36 | −0,067 | −0,059 | −0,008 | [−0,630 · +0,386] |
+| e4dbd3b3 | 672 | 193 | 21 | −0,121 | −0,082 | −0,036 | [−0,448 · +0,176] |
+| 9a708c09 | 1116 | 294 | 37 | +0,030 | +0,080 | −0,054 | [−0,598 · +0,328] |
+| ea20681e | 968 | 289 | 30 | +0,052 | +0,104 | −0,058 | [−0,223 · +0,176] |
+| 62752551 | 752 | 493 | 22 | −0,390 | −0,116 | −0,246 | [−0,991 · +0,320] |
+| bdc5457c | 406 | 252 | 14 | −1,718 | −0,925 | −0,412 | [−1,718 · +0,378] |
+| 3167e01c | 531 | 264 | 13 | −2,521 | −0,124 | −2,134 | [−18,006 · +0,001] |
+
+`9e4573b1` est l'athlète de référence du dépôt. Il est l'un des quatre
+répondeurs — son résultat n'était donc pas un artefact, mais il n'était pas
+typique, et tout ce que le dépôt publiait reposait sur un cas favorable choisi
+pour d'autres raisons.
+
+### Hétérogénéité réelle, ou défaut de mesure ?
+
+Quand une minorité montre un effet et le reste rien, deux lectures s'opposent
+et elles ne mènent pas au même modèle. Soit l'effet est **universel mais noyé**
+chez les athlètes mal mesurés — auquel cas leurs estimations ponctuelles
+restent positives, seulement avec des intervalles trop larges pour conclure.
+Soit l'effet **n'existe que chez certains**, et les estimations des autres se
+répartissent autour de zéro quelle que soit leur précision.
+
+| groupe | athlètes | gain médian | gain > 0 | largeur d'IC | puiss. méd. | plis méd. |
+|---|---:|---:|---:|---:|---:|---:|
+| détectés | 4 | **+0,331** | 4/4 | 0,372 | 451 | 23 |
+| non détectés | 9 | **−0,054** | 2/9 | 0,925 | 289 | 21 |
+
+Les détectés sont bien mieux mesurés — intervalles 2,5 fois plus serrés — mais
+**leur gain diffère aussi**, et c'est ce qui tranche : les non détectés sont
+centrés sur −0,054, avec 2 estimations positives sur 9. Ils ne sont pas
+positifs-mais-noyés, ils sont nuls. Le nombre de plis est d'ailleurs presque
+identique entre les deux groupes (23 contre 21), donc ce n'est pas une
+différence de puissance statistique.
+
+**L'hétérogénéité entre athlètes est réelle.** Chez certains, la puissance de
+vingt minutes répond à la charge d'une façon que le modèle de Banister capte ;
+chez la plupart, non. Aucune des variables essayées — charge moyenne,
+variabilité de la charge, proportion de jours de repos, dispersion de la
+puissance — ne sépare les deux groupes sur treize athlètes, et rien ne sera
+affirmé là-dessus sans plus de sujets.
+
+### Ce que la réplication change
+
+La domination de la persistance, elle, se réplique solidement : médiane
+−1,376, un athlète sur treize au-dessus, test du signe à **p = 0,003**. C'est
+le constat le plus robuste de ce dépôt, et il vaut pour la population, pas
+seulement pour un cas.
+
+Le reste impose de la prudence. Un jumeau numérique qui suppose une
+dose-réponse de charge se trompera chez environ deux athlètes sur trois — et
+rien, dans les données dont il dispose à l'inscription, ne permet de savoir
+lequel il a en face. Un modèle hiérarchique à pooling partiel est la suite
+naturelle : il estimerait la variance inter-athlètes de k₁ au lieu de la
+constater, et rendrait les constantes de temps identifiables, ce qu'elles ne
+sont pas sur un athlète seul.
+
+```bash
+python -m src.cli cohort         # criblage, replication, contraste
 ```
 
 ---
@@ -506,11 +613,13 @@ flowchart TB
         BASE["baselines.py<br/><i>déclarées d'avance</i>"]
         FND["foundation.py<br/><i>Chronos-2 · TTM<br/>ablation de covariable</i>"]
         SENS["sensitivity.py<br/><i>plancher de détectabilité</i>"]
+        COH["cohort.py<br/><i>réplication · 13 athlètes</i>"]
         VALID["validation.py<br/><i>blocs · horizon 28 j · par durée</i>"]
         REPORT["report.py<br/><i>bootstrap apparié par blocs</i>"]
         BASE --> VALID --> REPORT
         FND --> VALID
         REPORT --> SENS
+        REPORT --> COH
     end
 
     subgraph C["Layer C — Planificateur"]
@@ -533,7 +642,7 @@ flowchart TB
 
     classDef result fill:#16324f,stroke:#4c8bf5,stroke-width:2px,color:#fff
     classDef guard fill:#4a3620,stroke:#e0a355,stroke-width:2px,color:#fff
-    class REPORT,BAYES,FND,SENS result
+    class REPORT,BAYES,FND,SENS,COH result
     class PROV,TB guard
 ```
 
@@ -548,7 +657,8 @@ python -m src.cli screen-athletes --n 200   # trouver un athlète exploitable
 python -m src.cli ingest                    # construire les trois artefacts
 python -m src.cli calibrate                 # reporter les estimations
 python -m src.cli state                     # résumer ce qui existe
-python -m src.cli evaluate                  # quatre protocoles + planchers
+python -m src.cli evaluate                  # cinq protocoles + planchers
+python -m src.cli cohort                    # répliquer sur le cache d'athlètes
 
 streamlit run app/main_dashboard.py
 pytest                                      # hors ligne par défaut
@@ -618,8 +728,18 @@ dès que τ est échantillonné, τ et k se compensent et la dégénérescence
 apparaît. Seul le postérieur la révèle. Le signe de k₂ n'est pas contraint
 dans le modèle : le forcer masquerait précisément ce résultat.
 
-**Un seul athlète.** Deux autres sont retenus dans
-`config/opendata_manifest.json` mais ne servent pas encore de contrôle.
+**Treize athlètes pour la cible vélo, un seul pour la cible course.** La
+réplication ne porte que sur la puissance en vélo, parce qu'elle est la seule
+grandeur comparable disponible chez assez de sujets du cache. Tout ce que le
+dépôt affirme sur la *course* repose encore sur un athlète, et cet athlète se
+trouve être l'un des quatre répondeurs de la cohorte — un cas favorable, choisi
+pour d'autres raisons.
+
+**Qui répond reste inexpliqué.** Quatre athlètes sur treize montrent un effet
+de charge dont l'intervalle exclut zéro, neuf non. Ni la charge moyenne, ni sa
+variabilité, ni la proportion de jours de repos, ni la dispersion de la
+puissance ne séparent les deux groupes. Sur treize sujets c'est attendu, et
+rien ne sera affirmé là-dessus sans plus de monde.
 
 **L'enveloppe est autocorrélée par construction**, donc facile à prédire. Le
 +0,318 de la persistance mesure l'inertie, pas une compréhension de la
@@ -691,6 +811,11 @@ documentées. Le détail est dans [`AGENTS.md`](AGENTS.md).
   discipline dans leur nom, et la charge de course sert de contrôle négatif
   sur la cible vélo : si elle y prédisait quoi que ce soit, il faudrait
   chercher une fuite avant de parler de transfert.
+- **Un résultat sur un athlète est une anecdote.** `cli cohort` rejoue
+  l'expérience sur le cache et rend la **distribution** des résultats, jamais
+  leur moyenne : combien d'athlètes voient l'effet, chez combien l'intervalle
+  exclut zéro, et dans quel sens se trompent les autres. C'est ce qui a montré
+  que l'effet mesuré chez l'athlète de référence ne se généralise pas.
 - **Les tests n'écrivent jamais dans `data/`** ; une fixture le vérifie après
   chaque test. Le module de sensibilité ne déroge pas : l'enveloppe perturbée
   n'existe qu'en mémoire et l'interface ne rend que des statistiques, jamais
