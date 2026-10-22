@@ -43,7 +43,7 @@ import pandas as pd
 
 from ..layer_b_twin.load_model import compute_load_curves_by_sport
 from .metrics import paired_block_bootstrap
-from .report import evaluate_results
+from .report import evaluate_results, specific_variant
 from .validation import horizon_splits
 
 #: Amplitudes testees, en ecarts-types de l'enveloppe. delta = 1 signifie un
@@ -149,14 +149,11 @@ def detectability_curve(
     # Le modele teste doit consommer la MEME charge que celle injectee :
     # mesurer le plancher d'un modele nourri de course quand l'effet est
     # injecte depuis le velo ne dirait rien du protocole.
-    family = column.removeprefix("trimp_")
-    default = {"run": "banister course seule", "bike": "banister velo seul"}
     if variant is None:
-        if family not in default:
-            raise ValueError(
-                f"Aucune variante par defaut pour {column!r} : passer `variant`."
-            )
-        variant = f"{default[family]} t{tau1:.0f}/{tau2:.0f}"
+        try:
+            variant = specific_variant(column, tau1, tau2)
+        except ValueError as exc:
+            raise ValueError(f"{exc} Passer `variant` explicitement.") from None
     specific = variant
 
     rows = []

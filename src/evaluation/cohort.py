@@ -37,7 +37,7 @@ import pandas as pd
 from ..ingestion.opendata import AthleteSummary, read_summary
 from .foundation import build_forecast_context
 from .metrics import paired_block_bootstrap
-from .report import BIKE_SPORTS, evaluate_results
+from .report import BIKE_SPORTS, evaluate_results, specific_variant
 from .validation import horizon_splits
 
 log = logging.getLogger(__name__)
@@ -171,11 +171,16 @@ def screen_cache(cache_dir: Path | str,
     return kept
 
 
+#: Nom court de `PAIRS` vers le canal de charge correspondant.
+_SHORT_TO_COLUMN = {"velo seul": "trimp_bike", "course seule": "trimp_run"}
+
+
 def _variant(short: str, tau1: float, tau2: float) -> str:
     """Traduit un nom court de `PAIRS` en nom de variante enregistree."""
-    if short in ("moyenne", "persistance", "ewma", "tendance"):
-        return short
-    return f"banister {short} t{tau1:.0f}/{tau2:.0f}"
+    column = _SHORT_TO_COLUMN.get(short)
+    if column is None:
+        return short                      # une reference, pas une variante
+    return specific_variant(column, tau1, tau2)
 
 
 def evaluate_athlete(

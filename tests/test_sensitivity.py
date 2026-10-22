@@ -236,6 +236,6 @@ def test_the_tested_model_consumes_the_injected_discipline():
 
 def test_an_unknown_discipline_demands_an_explicit_variant():
     daily = _daily()
-    with pytest.raises(ValueError, match="passer `variant`"):
+    with pytest.raises(ValueError, match=r"[Pp]asser `variant`"):
         detectability_curve(_dense(daily), daily, deltas=(0.0,),
                             column="trimp_other", min_train_days=200)

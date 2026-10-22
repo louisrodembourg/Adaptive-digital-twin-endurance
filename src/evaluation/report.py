@@ -450,3 +450,24 @@ BIKE_TARGET_COLUMN = "cp20_w"
 #: disciplines se regroupent pour une PUISSANCE, ce qui serait faux pour une
 #: vitesse.
 BIKE_SPORTS: tuple[str, ...] = ("bike", "virtualride")
+
+#: Variante specifique a employer pour chaque canal de charge. Centralise ici
+#: parce que trois modules en dependent — sensibilite, cohorte et
+#: planificateur — et qu'un nom qui derive fait disparaitre silencieusement
+#: une comparaison du rapport.
+SPECIFIC_VARIANTS: dict[str, str] = {
+    "trimp_run": "banister course seule",
+    "trimp_bike": "banister velo seul",
+}
+
+
+def specific_variant(load_column: str, tau1: float = 42.0, tau2: float = 12.0) -> str:
+    """Nom de la variante qui ne consomme que cette discipline."""
+    try:
+        base = SPECIFIC_VARIANTS[load_column]
+    except KeyError:
+        raise ValueError(
+            f"Aucune variante specifique pour {load_column!r}. "
+            f"Connues : {', '.join(sorted(SPECIFIC_VARIANTS))}."
+        ) from None
+    return f"{base} t{tau1:.0f}/{tau2:.0f}"
