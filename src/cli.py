@@ -27,11 +27,18 @@ import pandas as pd
 from .config import Config, ConfigError, clear_config_cache, load_config
 from .evaluation.foundation import SPECS, build_forecast_context, is_available, variant_name
 from .evaluation.report import (
+    evaluate_by_duration,
     evaluate_results,
+    format_durations,
     format_pairs,
     format_report,
+    load_ablation_pairs,
     paired_table,
     results_table,
+)
+from .evaluation.sensitivity import (
+    detectability_curve,
+    format_detectability,
 )
 from .evaluation.validation import horizon_splits
 from .ingestion.opendata import (
@@ -228,6 +235,8 @@ def cmd_state(args, cfg: Config) -> int:
 RESULTS_FILE = "evaluation_results.parquet"
 ABLATION_FILE = "evaluation_ablation.parquet"
 PROVENANCE_FILE = "evaluation_provenance.json"
+DURATIONS_FILE = "evaluation_durations.parquet"
+FLOORS_FILE = "evaluation_detectability.parquet"
 
 
 def _package_versions(models: tuple[str, ...]) -> dict[str, str]:
@@ -248,6 +257,54 @@ def _package_versions(models: tuple[str, ...]) -> dict[str, str]:
             out[name] = "absent"
     return out
 
+
+
+#: Colonne de puissance critique retenue comme cible velo. 20 minutes est le
+#: compromis usuel : assez long pour etre limite par l'aerobie, assez court
+#: pour etre atteint souvent (417 observations contre 273 a soixante minutes).
+BIKE_TARGET_COLUMN = "cp20_w"
+
+#: Un watt est un watt, sur route comme sur home-trainer : les deux
+#: disciplines se regroupent pour une PUISSANCE, ce qui serait faux pour une
+#: vitesse.
+BIKE_SPORTS = ("bike", "virtualride")
+
+
+def _evaluate_bike_target(sessions, daily, tau, horizon_days, min_train_days, spec):
+    """
+    Confronte la charge velo a une performance velo.
+
+    C'est le seul appariement du depot ou la discipline qui porte la charge
+    est celle dont on mesure la performance. Il sert aussi de controle de
+    validite discriminante : la charge de COURSE ne doit PAS predire une
+    puissance en velo, et si elle le faisait, ce serait le signe d'une fuite
+    dans l'alignement des dates, pas d'un transfert physiologique.
+    """
+    if sessions.empty or BIKE_TARGET_COLUMN not in sessions.columns:
+        return None, None
+    lowered = sessions["sport"].astype(str).str.lower()
+    bike = sessions[lowered.str.startswith(BIKE_SPORTS)]
+    source = (bike[["date", BIKE_TARGET_COLUMN]].dropna()
+              .rename(columns={BIKE_TARGET_COLUMN: "pi"}))
+    if len(source) < 40:
+        return None, None
+
+    context = build_forecast_context(source, daily, "pi",
+                                     window_days=spec.window_days,
+                                     min_periods=spec.min_periods)
+    dense = (context.frame[[context.target_column]].dropna()
+             .rename(columns={context.target_column: "perf"}).reset_index())
+    splits = list(horizon_splits(dense["date"], horizon_days=horizon_days,
+                                 min_train_days=min_train_days,
+                                 step_days=horizon_days))
+    if not splits:
+        return None, None
+    results = evaluate_results(dense, daily, target="perf", taus=[tau], splits=splits)
+    floors = detectability_curve(dense, daily, target="perf", tau1=tau[0],
+                                 tau2=tau[1], horizon_days=horizon_days,
+                                 min_train_days=min_train_days,
+                                 column="trimp_bike")
+    return results, floors
 
 def cmd_evaluate(args, cfg: Config) -> int:
     daily = load_daily_load(cfg)
@@ -307,7 +364,7 @@ def cmd_evaluate(args, cfg: Config) -> int:
     # L'ablation est l'experience : chaque modele est compare a lui-meme prive
     # de la charge, puis a la persistance. Un ecart de R2 agrege ne suffit pas
     # a affirmer un gain, d'ou l'intervalle apparie.
-    pairs = []
+    pairs = load_ablation_pairs(*taus[0])
     for model in models:
         if model in SPECS and is_available(model):
             with_cov, without = variant_name(model, True), variant_name(model, False)
@@ -317,6 +374,63 @@ def cmd_evaluate(args, cfg: Config) -> int:
         print("\n\nComparaisons appariees — bootstrap par blocs sur les plis\n")
         print(format_pairs(ablation))
         ablation.to_parquet(cfg.paths.processed / ABLATION_FILE, index=False)
+
+    # Protocole 3 : une enveloppe PAR DUREE d'effort. `perf_index` prend un
+    # maximum sur les durees avant que l'enveloppe en reprenne un sur 42
+    # jours ; separer les durees est la seule facon de voir si une
+    # dose-reponse existe sur l'une d'elles sans exister sur le scalaire.
+    durations, duration_pairs = evaluate_by_duration(
+        obs, daily, taus=[taus[0]], horizon_days=args.horizon,
+        min_train_days=args.min_train, window_days=spec.window_days,
+        min_periods=spec.min_periods)
+    if not durations.empty:
+        print("\n\nProtocole « par duree » — enveloppe de chaque plafond, "
+              f"horizon {args.horizon}j\n")
+        print(format_durations(durations))
+        durations.to_parquet(cfg.paths.processed / DURATIONS_FILE, index=False)
+        if not duration_pairs.empty:
+            print("\n\nCharge specifique contre persistance, duree par duree\n")
+            print(format_pairs(duration_pairs))
+
+    # Protocole 4 : le plancher de detectabilite. Il ne mesure pas l'athlete,
+    # il mesure le protocole — quel effet celui-ci saurait voir. Sans ce
+    # nombre, « on n'a rien trouve » et « il n'y a rien » sont
+    # indistinguables, et c'est le premier reproche a faire au resultat nul.
+    floors = detectability_curve(dense, daily, target="perf", tau1=taus[0][0],
+                                 tau2=taus[0][1], horizon_days=args.horizon,
+                                 min_train_days=args.min_train)
+    if not floors.empty:
+        print("\n\nPlancher de detectabilite — effet de charge SYNTHETIQUE "
+              "ajoute a l'enveloppe reelle\n")
+        print(format_detectability(floors))
+        floors.to_parquet(cfg.paths.processed / FLOORS_FILE, index=False)
+
+    # Protocole 5 : la CIBLE VELO. C'est l'appariement que le depot n'avait
+    # jamais fait — 68,5 % de la charge est cycliste, et la puissance critique
+    # du velo est mesuree depuis 2016 (417 observations de `cp20_w`, espacees
+    # de deux jours medians) sans jamais avoir servi de cible, parce que
+    # `build_perf_observations` filtre sur `is_run`.
+    bike_results, bike_floors = _evaluate_bike_target(
+        load_sessions(cfg), daily, taus[0], args.horizon, args.min_train, spec)
+    if bike_results is not None:
+        t5 = results_table(bike_results)
+        t5.insert(0, "protocol", "cible velo cp20")
+        tables.append(t5)
+        print("\n\nProtocole « cible velo » — enveloppe de cp20_w, "
+              f"horizon {args.horizon}j\n")
+        print(format_report(t5))
+        bike_pairs = paired_table(bike_results, [
+            (f"banister velo seul t{taus[0][0]:.0f}/{taus[0][1]:.0f}", other)
+            for other in (f"banister t{taus[0][0]:.0f}/{taus[0][1]:.0f}",
+                          f"banister course seule t{taus[0][0]:.0f}/{taus[0][1]:.0f}",
+                          "moyenne", "persistance")
+        ])
+        if not bike_pairs.empty:
+            print("\n\nCharge velo contre les autres, sur la cible velo\n")
+            print(format_pairs(bike_pairs))
+        if bike_floors is not None and not bike_floors.empty:
+            print("\n\nPlancher de detectabilite sur la cible velo\n")
+            print(format_detectability(bike_floors))
 
     table = pd.concat(tables, ignore_index=True)
 
