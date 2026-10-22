@@ -114,8 +114,9 @@ def envelope_series(
     sessions: pd.DataFrame,
     column: str,
     window_days: int = DEFAULT_WINDOW_DAYS,
-    sport_filter: str | None = None,
+    sport_filter: str | tuple[str, ...] | None = None,
     min_periods: int = 3,
+    calendar: str = "observations",
 ) -> pd.DataFrame:
     """
     Enveloppe construite directement depuis sessions.parquet.
@@ -123,14 +124,23 @@ def envelope_series(
     `sport_filter` s'applique sur le debut du nom de discipline, en
     minuscules : "run" retient Run, "bike" retient Bike mais pas VirtualRide,
     qui est une discipline distincte et doit etre demandee explicitement.
+
+    Un TUPLE de prefixes permet de les regrouper, et il faut le demander
+    expressement parce que la reponse depend de la grandeur mesuree : une
+    VITESSE sur home-trainer n'est pas comparable a une vitesse sur route,
+    mais une PUISSANCE l'est — un watt est un watt. D'ou
+    `("bike", "virtualride")` pour `cp20_w`, et "bike" seul pour une vitesse.
     """
     df = sessions
     if sport_filter:
-        df = df[df["sport"].str.lower().str.startswith(sport_filter.lower())]
+        prefixes = (sport_filter,) if isinstance(sport_filter, str) else tuple(sport_filter)
+        lowered = df["sport"].astype(str).str.lower()
+        keep = lowered.str.startswith(tuple(p.lower() for p in prefixes))
+        df = df[keep]
     spec = EnvelopeSpec(column=column, window_days=window_days,
                         min_periods=min_periods,
                         name=f"{column}_env{window_days}")
-    return rolling_envelope(df, spec)
+    return rolling_envelope(df, spec, calendar=calendar)
 
 
 def describe_predictability(series: pd.Series | np.ndarray, lag: int = 1) -> dict:

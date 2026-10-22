@@ -202,3 +202,54 @@ def test_unknown_calendar_is_refused():
     obs = _observations([1.0, 2.0, 3.0], freq="1D")
     with pytest.raises(ValueError, match="calendar"):
         rolling_envelope(obs, EnvelopeSpec("v"), calendar="weekly")
+
+
+# -- regroupement de disciplines -------------------------------------------
+
+def _mixed_sports():
+    """Trois disciplines le meme jour, pour distinguer les filtres."""
+    return pd.DataFrame({
+        "date": pd.to_datetime(["2019-01-01", "2019-01-05", "2019-01-09",
+                                "2019-01-13", "2019-01-17", "2019-01-21"]),
+        "sport": ["Bike", "VirtualRide", "Run", "Bike", "VirtualRide", "Run"],
+        "cp20_w": [200.0, 210.0, 999.0, 220.0, 230.0, 999.0],
+    })
+
+
+def test_a_single_prefix_still_excludes_virtualride():
+    """
+    Le comportement historique ne doit pas bouger : "bike" retient Bike et
+    pas VirtualRide, parce qu'une VITESSE sur home-trainer n'est pas
+    comparable a une vitesse sur route.
+    """
+    out = envelope_series(_mixed_sports(), "cp20_w", window_days=42,
+                          sport_filter="bike", min_periods=1)
+    assert out["cp20_w_env42"].max() == 220.0
+
+
+def test_a_tuple_of_prefixes_groups_the_disciplines():
+    """
+    Un watt est un watt : pour une PUISSANCE les deux disciplines velo se
+    regroupent, ce qui serait faux pour une vitesse. D'ou le tuple explicite.
+    """
+    out = envelope_series(_mixed_sports(), "cp20_w", window_days=42,
+                          sport_filter=("bike", "virtualride"), min_periods=1)
+    assert out["cp20_w_env42"].max() == 230.0
+
+
+def test_the_filter_keeps_running_out_of_a_bike_envelope():
+    out = envelope_series(_mixed_sports(), "cp20_w", window_days=42,
+                          sport_filter=("bike", "virtualride"), min_periods=1)
+    # 999 est la valeur sentinelle posee sur les lignes Run.
+    assert 999.0 not in set(out["cp20_w_env42"])
+
+
+def test_envelope_series_can_ask_for_the_daily_grid():
+    sparse = envelope_series(_mixed_sports(), "cp20_w", window_days=42,
+                             sport_filter=("bike", "virtualride"), min_periods=1)
+    dense = envelope_series(_mixed_sports(), "cp20_w", window_days=42,
+                            sport_filter=("bike", "virtualride"), min_periods=1,
+                            calendar="daily")
+    assert len(dense) > len(sparse)
+    aligned = dense[dense["date"].isin(sparse["date"])].reset_index(drop=True)
+    pd.testing.assert_frame_equal(aligned, sparse)
