@@ -125,7 +125,7 @@ Règles d'interprétation :
 def parse_context_to_constraints(
     user_input: str,
     api_key: str | None = None,
-    model: str = "claude-opus-4-6",
+    model: str = "claude-opus-5-5",
     use_heuristic_fallback: bool = True,
 ) -> SoftConstraints:
     """
@@ -175,7 +175,11 @@ def _parse_via_claude(
 
     message = client.messages.create(
         model=model,
-        max_tokens=512,
+        max_tokens=1024,
+        # Extraire quatre champs d'une phrase ne demande pas de raisonnement
+        # profond, et l'effort est ce qui pilote la depense sur les modeles
+        # actuels.
+        output_config={"effort": "low"},
         system=_SYSTEM_PROMPT,
         messages=[{
             "role": "user",
@@ -183,7 +187,15 @@ def _parse_via_claude(
         }]
     )
 
-    raw = message.content[0].text.strip()
+    # `content[0]` n'est pas forcement le texte : sur les modeles actuels la
+    # reflexion est active par defaut et ne peut pas etre desactivee, donc le
+    # premier bloc est souvent un bloc `thinking`. Chercher le bloc de texte
+    # au lieu de supposer sa position.
+    raw = next(
+        (block.text for block in message.content if block.type == "text"), ""
+    ).strip()
+    if not raw:
+        raise ValueError("Reponse du modele sans bloc de texte.")
 
     # Extraire le JSON si entouré de markdown
     json_match = re.search(r'\{.*\}', raw, re.DOTALL)

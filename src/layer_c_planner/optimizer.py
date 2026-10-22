@@ -746,7 +746,14 @@ def generate_taper_plan(
     params: dict | None = None,
 ) -> WeeklyPlan:
     """
-    Génère un plan tapering optimisé pour maximiser le TSB au jour J
+    Génère un plan d'affûtage : la charge décroît vers le jour J.
+
+    L'ancienne formulation disait « maximiser le TSB au jour J ». C'est le même
+    défaut que celui corrigé dans `optimize_week` : le TSB est un proxy, et le
+    maximiser revient à prescrire le repos complet, qui maximise effectivement
+    la fraîcheur et désentraîne. L'affûtage réduit le volume en gardant
+    l'intensité — c'est ce que fait la décroissance ci-dessous, et c'est ce que
+    la littérature soutient, pas la maximisation d'un indicateur.
     tout en maintenant la spécificité (intensité préservée, volume réduit).
 
     Règles Tapering :
