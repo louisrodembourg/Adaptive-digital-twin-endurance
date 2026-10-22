@@ -23,6 +23,14 @@ plotly>=5.20.0
 # Config
 pyyaml>=6.0
 
+# --- Optionnel : modeles de fondation de series temporelles ---
+# Evalues comme references supplementaires par `cli evaluate --models`. Hors
+# dependances par defaut : torch pese environ 2 Go, et aucun chiffre du depot
+# n'en a besoin pour etre reproduit.
+#   pip install -e ".[tsfm]"
+# Les poids de TabPFN exigent en plus un compte Prior Labs (TABPFN_TOKEN) ;
+# Chronos-2 et TTM se telechargent sans condition.
+
 # --- Optionnel : adaptateurs LLM du planificateur (Layer C) ---
 # Le parsing de contexte fonctionne en mode heuristique sans aucun de ces
 # paquets. Installer seulement si l'on veut activer un fournisseur :
