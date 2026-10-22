@@ -109,7 +109,16 @@ def check_safety_constraints(
         today = date.today()
 
     planner = params.get('planner', {})
-    rmssd_threshold = planner.get('rmssd_vma_threshold', 50.0)
+    # La cle lue etait `rmssd_vma_threshold`, qui n'existe pas dans
+    # params.yaml : la valeur configuree sous `planner.hrv.rmssd_threshold_ms`
+    # n'etait donc jamais lue, et le defaut code en dur gagnait toujours. Le
+    # commentaire du fichier de configuration la presentait pourtant comme
+    # « seule source de verite pour ce seuil ». L'ancienne cle est encore
+    # acceptee pour ne pas casser une configuration qui l'aurait adoptee.
+    hrv = planner.get('hrv', {}) or {}
+    rmssd_threshold = (planner.get('rmssd_vma_threshold')
+                       or hrv.get('rmssd_threshold_ms')
+                       or 50.0)
     taper_days = planner.get('taper_start_days_before', 14)
 
     constraints: list[HardConstraint] = []

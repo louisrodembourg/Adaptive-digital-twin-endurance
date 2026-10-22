@@ -108,8 +108,23 @@ twin:
 # --- Layer C : planificateur ----------------------------------
 planner:
   max_weekly_progression_pct: 10
+  min_weekly_retention_pct: 80    # plancher : ne pas prescrire le desentrainement
   taper_start_days_before: 14
   max_high_intensity_per_week: 2
+
+  # Repetitions hebdomadaires par type de seance. Sans ces bornes
+  # l'optimiseur empile le type le moins couteux qui satisfait ses
+  # contraintes : il prescrivait quatre seances CALIBRATION, qui est un TEST
+  # et non un entrainement. C'est aussi le contenu pratique du controle de
+  # monotonie, que le rapport moyenne/ecart-type de Foster exprime mais qu'un
+  # solveur lineaire ne peut pas poser directement.
+  max_per_type_per_week:
+    CALIBRATION: 1        # une mesure par semaine suffit
+    VMA: 1                # la seance la plus traumatisante
+    THRESHOLD: 2
+    SPECIFIC: 2
+    STRENGTH: 2
+  max_same_type_per_week: 3   # defaut pour les types non listes
   acwr_upper_bound: 1.5           # ratio charge aigue 7 j / chronique 28 j
 
   hrv:
