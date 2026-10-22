@@ -58,6 +58,46 @@ def expanding_window_splits(n: int, min_train: int = 10, step: int = 1
         yield slice(0, k), slice(k, min(k + step, n))
 
 
+def horizon_splits(
+    dates: pd.Series,
+    horizon_days: int = 28,
+    min_train_days: int = 180,
+    step_days: int = 28,
+) -> Iterator[tuple[slice, slice]]:
+    """
+    Decoupage a horizon CALENDAIRE fixe, par opposition aux deux precedents.
+
+    `blocked_splits` et `expanding_window_splits` comptent des observations.
+    Sur une cible irreguliere — l'enveloppe telle qu'elle etait rapportee a
+    des ecarts de 1 a 140 jours entre points voisins — un bloc de test couvre
+    donc une duree tres variable, et le score agrege melange des previsions
+    a une semaine et a cinq mois. Comme mesure d'un horizon de prevision cela
+    ne veut rien dire.
+
+    Ici l'entrainement s'arrete a une date, et le test est l'ensemble des
+    observations tombant dans les `horizon_days` jours qui suivent. L'origine
+    avance de `step_days` a chaque pli. C'est la question que poserait un
+    athlete : « ou sera mon niveau dans quatre semaines ? »
+
+    Les dates doivent etre triees — `cross_validate` s'en charge.
+    """
+    if horizon_days < 1 or step_days < 1:
+        raise ValueError("L'horizon et le pas doivent valoir au moins un jour.")
+    d = pd.DatetimeIndex(pd.to_datetime(pd.Series(dates)))
+    if d.empty:
+        return
+    origin = d.min() + pd.Timedelta(days=min_train_days)
+    last = d.max()
+    while origin < last:
+        train_end = int(d.searchsorted(origin, side="right"))
+        test_end = int(d.searchsorted(origin + pd.Timedelta(days=horizon_days), side="right"))
+        # Un pli sans observation a predire, ou sans historique, n'apprend
+        # rien a personne : on avance plutot que de le compter comme un echec.
+        if train_end > 0 and test_end > train_end:
+            yield slice(0, train_end), slice(train_end, test_end)
+        origin += pd.Timedelta(days=step_days)
+
+
 @dataclass
 class FoldResult:
     n_train: int
@@ -78,6 +118,13 @@ class ValidationResult:
     n_observations: int
     n_folds: int
     skill_vs_mean: float = float("nan")
+    # Predictions concatenees et identifiant du pli dont chaque point provient.
+    # Conservees pour pouvoir comparer deux variantes point a point : elles
+    # predisent les memes points sous le meme decoupage, donc leurs scores
+    # agreges ne suffisent pas a dire si un ecart depasse le bruit.
+    y_true: np.ndarray = field(default_factory=lambda: np.array([]), repr=False)
+    y_pred: np.ndarray = field(default_factory=lambda: np.array([]), repr=False)
+    blocks: np.ndarray = field(default_factory=lambda: np.array([]), repr=False)
 
     @property
     def is_better_than_guessing(self) -> bool:
@@ -109,6 +156,7 @@ def cross_validate(
     y: np.ndarray,
     n_splits: int = 5,
     expanding: bool = False,
+    splits: list[tuple[slice, slice]] | None = None,
 ) -> ValidationResult:
     """
     Evalue une variante et renvoie ses scores d'ajustement et hors echantillon.
@@ -116,12 +164,19 @@ def cross_validate(
     Le R2 hors echantillon est calcule contre la moyenne du jeu
     d'ENTRAINEMENT : utiliser celle du test donnerait au modele une
     information dont il ne disposait pas.
+
+    `splits` permet d'imposer un decoupage deja construit — `horizon_splits`
+    notamment, qui a besoin des dates et non du seul nombre d'observations.
+    Toutes les variantes d'une meme comparaison doivent recevoir le MEME
+    decoupage, sans quoi les colonnes ne sont plus comparables.
     """
     dates = pd.Series(pd.to_datetime(dates)).reset_index(drop=True)
     y = np.asarray(y, dtype=float)
     n = len(y)
 
-    splits = list(expanding_window_splits(n) if expanding else blocked_splits(n, n_splits))
+    if splits is None:
+        splits = list(expanding_window_splits(n) if expanding else blocked_splits(n, n_splits))
+    splits = list(splits)
     folds: list[FoldResult] = []
     trues, preds, train_means = [], [], []
 
@@ -161,7 +216,31 @@ def cross_validate(
         n_observations=n,
         n_folds=len(folds),
         skill_vs_mean=skill_score(y_true, y_pred, mean_pred),
+        y_true=y_true,
+        y_pred=y_pred,
+        blocks=np.concatenate([np.full(f.n_test, i) for i, f in enumerate(folds)]),
     )
+
+
+def compare_results(
+    variants: dict[str, Predictor],
+    dates: pd.Series,
+    y: np.ndarray,
+    n_splits: int = 5,
+    expanding: bool = False,
+    splits: list[tuple[slice, slice]] | None = None,
+) -> dict[str, ValidationResult]:
+    """
+    Comme `compare`, mais rend les resultats complets plutot qu'un tableau.
+
+    Les predictions par pli y sont conservees : sans elles, impossible de
+    comparer deux variantes autrement qu'en soustrayant deux R2, ce qui ne
+    dit rien de la solidite de l'ecart.
+    """
+    if splits is not None:
+        splits = list(splits)
+    return {name: cross_validate(name, p, dates, y, n_splits, expanding, splits)
+            for name, p in variants.items()}
 
 
 def compare(
@@ -170,12 +249,13 @@ def compare(
     y: np.ndarray,
     n_splits: int = 5,
     expanding: bool = False,
+    splits: list[tuple[slice, slice]] | None = None,
 ) -> pd.DataFrame:
     """
     Evalue plusieurs variantes sous le meme protocole et classe les resultats.
 
     Le tri se fait sur le score hors echantillon, jamais sur l'ajustement.
     """
-    rows = [cross_validate(n, p, dates, y, n_splits, expanding).to_dict()
-            for n, p in variants.items()]
+    results = compare_results(variants, dates, y, n_splits, expanding, splits)
+    rows = [r.to_dict() for r in results.values()]
     return pd.DataFrame(rows).sort_values("r2_out", ascending=False).reset_index(drop=True)

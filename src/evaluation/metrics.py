@@ -8,6 +8,7 @@ qu'elle note finit par etre choisie pour le flatter.
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 
 
 def _clean(y_true, y_pred) -> tuple[np.ndarray, np.ndarray]:
@@ -89,3 +90,56 @@ def autocorrelation(series, lag: int = 1) -> float:
     if sa == 0 or sb == 0:
         return float("nan")
     return float(np.mean((a - a.mean()) * (b - b.mean())) / (sa * sb))
+
+
+def paired_block_bootstrap(y_true, y_a, y_b, blocks, n_boot: int = 10000,
+                           seed: int = 0) -> dict:
+    """
+    Compare deux predictions sur les memes points, par bootstrap apparie.
+
+    Deux variantes evaluees sous le meme decoupage ne sont pas deux
+    echantillons independants : elles predisent exactement les memes points.
+    Comparer leurs R2 agreges ne dit donc pas si l'ecart depasse le bruit, et
+    un ecart de 0,003 de R2 ne veut rien dire tant qu'on ne l'a pas borne.
+
+    Le reechantillonnage porte sur des BLOCS — les plis de validation — et non
+    sur des points. Les erreurs d'un meme pli sont fortement autocorrelees :
+    tirer des jours independamment supposerait 500 observations independantes
+    la ou il y en a 18, et donnerait un intervalle faussement etroit.
+
+    Renvoie le gain de `a` sur `b` au sens du score de competence
+    (positif : `a` fait moins d'erreur), son intervalle a 95 %, et la part des
+    reechantillonnages ou `a` gagne.
+    """
+    a = np.asarray(y_true, dtype=float)
+    pa = np.asarray(y_a, dtype=float)
+    pb = np.asarray(y_b, dtype=float)
+    blk = np.asarray(blocks)
+    ok = np.isfinite(a) & np.isfinite(pa) & np.isfinite(pb)
+    a, pa, pb, blk = a[ok], pa[ok], pb[ok], blk[ok]
+    if a.size < 2:
+        return {"skill": float("nan"), "ci_low": float("nan"),
+                "ci_high": float("nan"), "p_a_better": float("nan"), "n_blocks": 0}
+
+    groups = [np.flatnonzero(blk == b) for b in pd.unique(blk)]
+    rng = np.random.default_rng(seed)
+
+    def skill(idx: np.ndarray) -> float:
+        mse_b = float(((a[idx] - pb[idx]) ** 2).mean())
+        if mse_b <= 0:
+            return float("nan")
+        return 1.0 - float(((a[idx] - pa[idx]) ** 2).mean()) / mse_b
+
+    draws = np.empty(n_boot, dtype=float)
+    for i in range(n_boot):
+        picked = rng.integers(0, len(groups), len(groups))
+        draws[i] = skill(np.concatenate([groups[j] for j in picked]))
+
+    finite = draws[np.isfinite(draws)]
+    return {
+        "skill": skill(np.arange(a.size)),
+        "ci_low": float(np.percentile(finite, 2.5)) if finite.size else float("nan"),
+        "ci_high": float(np.percentile(finite, 97.5)) if finite.size else float("nan"),
+        "p_a_better": float((finite > 0).mean()) if finite.size else float("nan"),
+        "n_blocks": len(groups),
+    }
