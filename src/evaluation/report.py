@@ -148,18 +148,29 @@ def build_variants(daily_load: pd.DataFrame,
             daily_load, tau1, tau2, with_fatigue=False)
         if not has_sports:
             continue
-        # Les trois variantes qui instruisent le resultat nul : un coefficient
-        # par discipline, la charge specifique seule, et la charge mise en
+        # Les variantes qui instruisent le resultat nul : un coefficient par
+        # discipline, chaque charge specifique seule, et la charge mise en
         # concurrence avec une simple tendance temporelle.
-        variants[f"banister par sport {suffix}"] = banister_predictor(
-            daily_load, tau1, tau2, load_columns=LOAD_COLUMNS)
-        variants[f"banister course seule {suffix}"] = banister_predictor(
-            daily_load, tau1, tau2, load_columns=("trimp_run",))
-        # La charge velo contre une cible velo : le seul appariement ou la
-        # discipline qui porte 68,5 % de la charge est confrontee a une
-        # performance mesuree dans cette meme discipline.
-        variants[f"banister velo seul {suffix}"] = banister_predictor(
-            daily_load, tau1, tau2, load_columns=("trimp_bike",))
+        #
+        # Une discipline que cet athlete ne pratique pas donne une colonne
+        # nulle, et `banister_predictor` refuse de l'ajuster. C'est le cas
+        # courant des le moment ou l'on sort de l'athlete de reference : un
+        # cycliste pur n'a aucune charge de course. La variante est alors
+        # omise plutot que de faire echouer tout le tableau.
+        specific = {
+            f"banister par sport {suffix}": LOAD_COLUMNS,
+            f"banister course seule {suffix}": ("trimp_run",),
+            # La charge velo contre une cible velo : le seul appariement ou la
+            # discipline qui porte la charge est celle dont on mesure la
+            # performance.
+            f"banister velo seul {suffix}": ("trimp_bike",),
+        }
+        for name, columns in specific.items():
+            try:
+                variants[name] = banister_predictor(
+                    daily_load, tau1, tau2, load_columns=columns)
+            except ValueError:
+                continue
         variants[f"banister + tendance {suffix}"] = banister_predictor(
             daily_load, tau1, tau2, with_trend=True)
     if context is not None and models:
@@ -428,3 +439,14 @@ def format_durations(table: pd.DataFrame) -> str:
         lines.append(f"{int(r['duration_s']):6d}s ecartee — {int(r['n_obs'])} observations, "
                      "trop peu pour un R2 interpretable")
     return "\n".join(lines)
+
+#: Colonne de puissance critique retenue comme cible velo. Vingt minutes est
+#: le compromis usuel : assez long pour etre limite par l'aerobie, assez court
+#: pour etre atteint souvent (417 observations chez l'athlete de reference,
+#: contre 273 a soixante minutes).
+BIKE_TARGET_COLUMN = "cp20_w"
+
+#: Un watt est un watt, sur route comme sur home-trainer : les deux
+#: disciplines se regroupent pour une PUISSANCE, ce qui serait faux pour une
+#: vitesse.
+BIKE_SPORTS: tuple[str, ...] = ("bike", "virtualride")

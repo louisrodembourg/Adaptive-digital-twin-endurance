@@ -25,8 +25,18 @@ import numpy as np
 import pandas as pd
 
 from .config import Config, ConfigError, clear_config_cache, load_config
+from .evaluation.cohort import (
+    CohortCriteria,
+    detection_contrast,
+    format_cohort,
+    format_contrast,
+    run_cohort,
+    summarise_cohort,
+)
 from .evaluation.foundation import SPECS, build_forecast_context, is_available, variant_name
 from .evaluation.report import (
+    BIKE_SPORTS,
+    BIKE_TARGET_COLUMN,
     evaluate_by_duration,
     evaluate_results,
     format_durations,
@@ -237,6 +247,7 @@ ABLATION_FILE = "evaluation_ablation.parquet"
 PROVENANCE_FILE = "evaluation_provenance.json"
 DURATIONS_FILE = "evaluation_durations.parquet"
 FLOORS_FILE = "evaluation_detectability.parquet"
+COHORT_FILE = "cohort_replication.parquet"
 
 
 def _package_versions(models: tuple[str, ...]) -> dict[str, str]:
@@ -257,17 +268,6 @@ def _package_versions(models: tuple[str, ...]) -> dict[str, str]:
             out[name] = "absent"
     return out
 
-
-
-#: Colonne de puissance critique retenue comme cible velo. 20 minutes est le
-#: compromis usuel : assez long pour etre limite par l'aerobie, assez court
-#: pour etre atteint souvent (417 observations contre 273 a soixante minutes).
-BIKE_TARGET_COLUMN = "cp20_w"
-
-#: Un watt est un watt, sur route comme sur home-trainer : les deux
-#: disciplines se regroupent pour une PUISSANCE, ce qui serait faux pour une
-#: vitesse.
-BIKE_SPORTS = ("bike", "virtualride")
 
 
 def _evaluate_bike_target(sessions, daily, tau, horizon_days, min_train_days, spec):
@@ -530,7 +530,57 @@ def build_parser() -> argparse.ArgumentParser:
                    help="historique minimal avant le premier pli, en jours")
     e.add_argument("--device", default="cpu", help="cpu ou mps")
     e.set_defaults(func=cmd_evaluate)
+
+    h = sub.add_parser("cohort", help="repliquer l'experience sur le cache d'athletes")
+    h.add_argument("--horizon", type=int, default=28, help="horizon de prevision, en jours")
+    h.add_argument("--min-train", type=int, default=180,
+                   help="contexte minimal avant le premier pli, en jours")
+    h.add_argument("--min-observations", type=int, default=60,
+                   help="observations de puissance exigees d'un athlete")
+    h.add_argument("--min-folds", type=int, default=8,
+                   help="plis exiges pour qu'un athlete compte")
+    h.set_defaults(func=cmd_cohort)
     return p
+
+
+
+def cmd_cohort(args, cfg: Config) -> int:
+    """
+    Rejoue l'experience de la cible velo sur les athletes du cache.
+
+    Un resultat sur un athlete est une anecdote. Ce qui compte ici n'est pas
+    la moyenne des competences — elle melangerait des historiques tres
+    inegaux — mais la DISTRIBUTION : combien d'athletes voient l'effet, chez
+    combien l'intervalle exclut zero, et dans quel sens se trompent les
+    autres.
+    """
+    criteria = CohortCriteria(min_power_observations=args.min_observations,
+                              min_folds=args.min_folds)
+    table = run_cohort(cfg.paths.cache / "opendata", criteria,
+                       horizon_days=args.horizon, min_train_days=args.min_train)
+    if table.empty:
+        print("Aucun athlete du cache ne peut porter l'experience. "
+              "Lancer `cli screen-athletes` puis `cli ingest`.", file=sys.stderr)
+        return 1
+
+    summary = summarise_cohort(table)
+    print("Replication sur la cohorte — cible velo, "
+          f"horizon {args.horizon}j\n")
+    print(format_cohort(table, summary))
+    print("\n\nHeterogeneite reelle, ou defaut de mesure ?\n")
+    print(format_contrast(detection_contrast(table)))
+
+    # La charge employee ici est celle de GoldenCheetah, pas celle que
+    # `features.py` calcule : le dire a cote des chiffres, pas seulement dans
+    # la docstring du module.
+    print("\n\nCharge : `trimp_points` des resumes GoldenCheetah, correlee a "
+          "0,982 avec le TRIMP\ndu depot chez l'athlete de reference (0,984 sur "
+          "le velo), pour un rapport median\nde 0,938. Suffisant pour une "
+          "replication, insuffisant pour publier un coefficient.")
+
+    table.to_parquet(cfg.paths.processed / COHORT_FILE, index=False)
+    print(f"\nEcrit : {cfg.paths.processed / COHORT_FILE}")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
