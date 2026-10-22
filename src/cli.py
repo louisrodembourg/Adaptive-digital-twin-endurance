@@ -9,23 +9,37 @@ bord. C'est ce qui rend les resultats verifiables plutot que declaratifs.
     python -m src.cli ingest    [--athlete UUID] [--limit N]
     python -m src.cli calibrate
     python -m src.cli state
+    python -m src.cli evaluate  [--models chronos2,ttm] [--horizon 28]
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
+from datetime import UTC, datetime
+from importlib.metadata import PackageNotFoundError, version
 
 import numpy as np
 import pandas as pd
 
 from .config import Config, ConfigError, clear_config_cache, load_config
+from .evaluation.foundation import SPECS, build_forecast_context, is_available, variant_name
+from .evaluation.report import (
+    evaluate_results,
+    format_pairs,
+    format_report,
+    paired_table,
+    results_table,
+)
+from .evaluation.validation import horizon_splits
 from .ingestion.opendata import (
     OpenDataClient,
     ScreeningCriteria,
     screen_athletes,
 )
+from .layer_a_signal.envelope import EnvelopeSpec, rolling_envelope
 from .pipeline.orchestrator import (
     OpenDataSpec,
     load_calibration,
@@ -209,6 +223,154 @@ def cmd_state(args, cfg: Config) -> int:
     return 0
 
 
+# ── evaluate ──────────────────────────────────────────────────────────────
+
+RESULTS_FILE = "evaluation_results.parquet"
+ABLATION_FILE = "evaluation_ablation.parquet"
+PROVENANCE_FILE = "evaluation_provenance.json"
+
+
+def _package_versions(models: tuple[str, ...]) -> dict[str, str]:
+    """
+    Versions exactes des paquets ayant produit les chiffres.
+
+    Un score de modele de fondation n'est reproductible qu'a version de
+    paquet et revision de poids donnees : les deux bougent plus vite que ce
+    depot, et un chiffre sans sa version n'est pas verifiable.
+    """
+    wanted = {"chronos2": "chronos-forecasting", "tabpfn-ts": "tabpfn-time-series",
+              "ttm": "granite-tsfm"}
+    out = {}
+    for name in ["torch", *[wanted[m] for m in models if m in wanted]]:
+        try:
+            out[name] = version(name)
+        except PackageNotFoundError:
+            out[name] = "absent"
+    return out
+
+
+def cmd_evaluate(args, cfg: Config) -> int:
+    daily = load_daily_load(cfg)
+    obs = load_perf_observations(cfg)
+    if daily.empty or obs.empty:
+        print("Aucune donnee a evaluer. Lancer `cli ingest`.", file=sys.stderr)
+        return 1
+
+    models = tuple(m.strip() for m in args.models.split(",") if m.strip())
+    for model in models:
+        if model not in SPECS:
+            print(f"Modele inconnu : {model}. Connus : {', '.join(SPECS)}", file=sys.stderr)
+            return 2
+        if not is_available(model):
+            print(f"{model} : paquet absent, variante non evaluee. "
+                  f"Installer avec `pip install -e \".[tsfm]\"`.", file=sys.stderr)
+
+    taus = [(42.0, 12.0), (60.0, 15.0)]
+    source = obs[["date", "perf_index"]].rename(columns={"perf_index": "pi"})
+    spec = EnvelopeSpec("pi", 42, min_periods=3)
+    timings: dict = {}
+    tables = []
+
+    # Protocole 1 : celui du depot, inchange. Les references n'ont pas besoin
+    # d'une grille journaliere, et ces lignes doivent rester reproductibles au
+    # chiffre pres — toute derive ici signale une regression, pas un resultat.
+    blocked = rolling_envelope(source, spec).rename(columns={spec.label: "perf"})
+    t1 = results_table(evaluate_results(blocked, daily, target="perf", taus=taus))
+    t1.insert(0, "protocol", "blocs")
+    tables.append(t1)
+    print("Protocole « blocs » — 4 plis positionnels sur "
+          f"{len(blocked)} points d'enveloppe\n")
+    print(format_report(t1))
+
+    # Protocole 2 : horizon calendaire fixe sur la grille journaliere, le seul
+    # ou « prevoir » veut dire quelque chose. C'est aussi le seul que les
+    # modeles de fondation peuvent consommer.
+    context = build_forecast_context(source, daily, "pi",
+                                     window_days=spec.window_days,
+                                     min_periods=spec.min_periods)
+    dense = (context.frame[[context.target_column]]
+             .dropna()
+             .rename(columns={context.target_column: "perf"})
+             .reset_index())
+    splits = list(horizon_splits(dense["date"], horizon_days=args.horizon,
+                                 min_train_days=args.min_train, step_days=args.horizon))
+    results = evaluate_results(dense, daily, target="perf", taus=taus, context=context,
+                               models=models, splits=splits, device=args.device,
+                               timings=timings)
+    t2 = results_table(results)
+    t2.insert(0, "protocol", f"horizon {args.horizon}j")
+    tables.append(t2)
+    print(f"\n\nProtocole « horizon {args.horizon}j » — {len(splits)} plis, "
+          f"{len(dense)} jours d'enveloppe definie\n")
+    print(format_report(t2))
+
+    # L'ablation est l'experience : chaque modele est compare a lui-meme prive
+    # de la charge, puis a la persistance. Un ecart de R2 agrege ne suffit pas
+    # a affirmer un gain, d'ou l'intervalle apparie.
+    pairs = []
+    for model in models:
+        if model in SPECS and is_available(model):
+            with_cov, without = variant_name(model, True), variant_name(model, False)
+            pairs += [(with_cov, without), (with_cov, "persistance")]
+    ablation = paired_table(results, pairs)
+    if not ablation.empty:
+        print("\n\nComparaisons appariees — bootstrap par blocs sur les plis\n")
+        print(format_pairs(ablation))
+        ablation.to_parquet(cfg.paths.processed / ABLATION_FILE, index=False)
+
+    table = pd.concat(tables, ignore_index=True)
+
+    # `cross_validate` avale les exceptions d'un prediteur : une variante
+    # cassee ressort en `folds = 0` avec des NaN partout, ce qui ressemble a un
+    # resultat mesure. Le dire fort, et sortir en erreur, est la seule facon de
+    # ne pas publier le silence d'un bug comme un constat.
+    broken = table[table["folds"] == 0]["name"].tolist()
+    if broken:
+        print(f"\n\nAucun pli n'a abouti pour : {', '.join(broken)}. "
+              "Ce n'est pas un resultat, c'est une panne.", file=sys.stderr)
+
+    # Deux variantes qui n'ont pas couvert le meme nombre de plis ne sont pas
+    # comparables ligne a ligne, meme si le tableau les range ensemble. Le dire
+    # plutot que de laisser la colonne « plis » au lecteur attentif.
+    for protocol, group in table[table["folds"] > 0].groupby("protocol"):
+        counts = group.groupby("folds")["name"].apply(list)
+        if len(counts) > 1:
+            detail = " ; ".join(f"{n} pli(s) : {', '.join(names)}"
+                                for n, names in counts.items())
+            print(f"\nProtocole « {protocol} » — plis inegaux ({detail}). "
+                  "Les scores ne portent pas sur les memes points.", file=sys.stderr)
+
+    out = cfg.paths.processed / RESULTS_FILE
+    table.to_parquet(out, index=False)
+
+    provenance = {
+        "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "packages": _package_versions(models),
+        "models": {m: vars(SPECS[m]) for m in models if m in SPECS},
+        "target": {"column": "pi", "window_days": spec.window_days,
+                   "min_periods": spec.min_periods, **context.describe()},
+        "protocols": {
+            "blocs": {"n_splits": 5, "n_points": len(blocked)},
+            f"horizon {args.horizon}j": {
+                "horizon_days": args.horizon, "step_days": args.horizon,
+                "min_train_days": args.min_train, "n_folds": len(splits),
+                "n_points": len(dense),
+            },
+        },
+        "latency_seconds": {
+            name: {"calls": t.calls, "mean": round(t.mean_seconds, 3),
+                   "horizons": t.horizons}
+            for name, t in timings.items() if t.calls
+        },
+    }
+    (cfg.paths.processed / PROVENANCE_FILE).write_text(
+        json.dumps(provenance, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    print(f"\n\nEcrit : {out}")
+    print(f"Ecrit : {cfg.paths.processed / PROVENANCE_FILE}")
+    return 1 if broken else 0
+
+
 def _fmt(value) -> str:
     return f"{value:.0f}" if value is not None and np.isfinite(value) else "?"
 
@@ -246,6 +408,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     t = sub.add_parser("state", help="resumer l'etat des donnees")
     t.set_defaults(func=cmd_state)
+
+    e = sub.add_parser("evaluate", help="confronter chaque variante aux memes references")
+    e.add_argument("--models", default="", help="modeles de fondation, separes par une virgule")
+    e.add_argument("--horizon", type=int, default=28, help="horizon de prevision, en jours")
+    e.add_argument("--min-train", type=int, default=180,
+                   help="historique minimal avant le premier pli, en jours")
+    e.add_argument("--device", default="cpu", help="cpu ou mps")
+    e.set_defaults(func=cmd_evaluate)
     return p
 
 
