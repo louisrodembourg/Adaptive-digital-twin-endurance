@@ -18,13 +18,19 @@ import argparse
 import json
 import logging
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from importlib.metadata import PackageNotFoundError, version
 
 import numpy as np
 import pandas as pd
 
-from .config import Config, ConfigError, clear_config_cache, load_config
+from .config import (
+    Config,
+    ConfigError,
+    clear_config_cache,
+    load_config,
+    load_params,
+)
 from .evaluation.cohort import (
     CohortCriteria,
     detection_contrast,
@@ -57,6 +63,9 @@ from .ingestion.opendata import (
     screen_athletes,
 )
 from .layer_a_signal.envelope import EnvelopeSpec, rolling_envelope
+from .layer_c_planner.dose_response import assess_dose_response
+from .layer_c_planner.optimizer import StimulusTarget, optimize_week
+from .layer_c_planner.safety_valve import check_safety_constraints
 from .pipeline.orchestrator import (
     OpenDataSpec,
     load_calibration,
@@ -540,6 +549,20 @@ def build_parser() -> argparse.ArgumentParser:
     h.add_argument("--min-folds", type=int, default=8,
                    help="plis exiges pour qu'un athlete compte")
     h.set_defaults(func=cmd_cohort)
+
+    pl = sub.add_parser("plan", help="proposer une semaine d'entrainement")
+    pl.add_argument("--objective", default="min_load",
+                    choices=["min_load", "max_specificity"],
+                    help="charge minimale suffisante (defaut) ou specificite maximale")
+    pl.add_argument("--week-start", default=None,
+                    help="lundi de la semaine visee (AAAA-MM-JJ)")
+    pl.add_argument("--previous-trimp", type=float, default=None,
+                    help="charge de la semaine ecoulee (defaut : lue dans les donnees)")
+    pl.add_argument("--key-sessions", type=int, default=2,
+                    help="seances a specificite elevee exigees")
+    pl.add_argument("--skip-dose-check", action="store_true",
+                    help="ne pas mesurer la dose-reponse (plus rapide)")
+    pl.set_defaults(func=cmd_plan)
     return p
 
 
@@ -580,6 +603,67 @@ def cmd_cohort(args, cfg: Config) -> int:
 
     table.to_parquet(cfg.paths.processed / COHORT_FILE, index=False)
     print(f"\nEcrit : {cfg.paths.processed / COHORT_FILE}")
+    return 0
+
+
+
+def _previous_week_trimp(daily: pd.DataFrame) -> float:
+    """
+    Charge des sept derniers jours connus.
+
+    Le defaut historique de `optimize_week` etait 250.0, une constante sans
+    rapport avec l'athlete. La lire dans les donnees est la seule facon que la
+    progression hebdomadaire et le plancher de retention veuillent dire
+    quelque chose.
+    """
+    if daily.empty or "trimp" not in daily.columns:
+        return 0.0
+    return float(daily.sort_values("date").tail(7)["trimp"].fillna(0.0).sum())
+
+
+def cmd_plan(args, cfg: Config) -> int:
+    """
+    Propose une semaine d'entrainement, et dit ce qu'elle optimise.
+
+    Le planificateur n'etait importe par rien — ni test, ni tableau de bord,
+    ni commande. Cette sous-commande le rend atteignable, donc verifiable.
+    """
+    daily = load_daily_load(cfg)
+    if daily.empty:
+        print("Aucune charge a planifier. Lancer `cli ingest`.", file=sys.stderr)
+        return 1
+
+    week_start = (date.fromisoformat(args.week_start) if args.week_start
+                  else date.today() + timedelta(days=7 - date.today().weekday()))
+    previous = (args.previous_trimp if args.previous_trimp is not None
+                else _previous_week_trimp(daily))
+
+    # Le verdict de dose-reponse se mesure chez CET athlete, parce qu'il varie
+    # d'un athlete a l'autre et qu'aucune variable connue a l'inscription ne
+    # permet de le deviner.
+    verdict = None
+    if not args.skip_dose_check:
+        sessions = load_sessions(cfg)
+        lowered = sessions["sport"].astype(str).str.lower()
+        bike = sessions[lowered.str.startswith(BIKE_SPORTS)]
+        observations = (bike[["date", BIKE_TARGET_COLUMN]].dropna()
+                        .rename(columns={BIKE_TARGET_COLUMN: "pi"}))
+        verdict = assess_dose_response(observations, daily, load_column="trimp_bike")
+
+    plan = optimize_week(
+        check_safety_constraints(params=load_params()),
+        previous_week_trimp=previous,
+        week_start=week_start,
+        objective=args.objective,
+        stimulus=StimulusTarget(min_key_sessions=args.key_sessions),
+        daily_load=daily,
+        dose_response=verdict,
+    )
+    print(plan.summary())
+    print()
+    print(plan.xai_report())
+    print(f"\nCharge de reference : {previous:.0f} TRIMP sur les sept derniers "
+          "jours connus")
     return 0
 
 
