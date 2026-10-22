@@ -54,6 +54,7 @@ def rolling_envelope(
     observations: pd.DataFrame,
     spec: EnvelopeSpec,
     date_column: str = "date",
+    calendar: str = "observations",
 ) -> pd.DataFrame:
     """
     Meilleure valeur atteinte sur une fenetre glissante se terminant ce jour.
@@ -65,7 +66,22 @@ def rolling_envelope(
     Ne regarde jamais l'avenir — `rolling` sur un index temporel est
     strictement causal, ce qui rend la sortie utilisable telle quelle comme
     variable a expliquer dans une validation temporelle.
+
+    `calendar` choisit les jours ou l'enveloppe est rapportee :
+
+    - `"observations"` : uniquement les jours ou une mesure existe. C'est le
+      defaut historique, et la serie obtenue est irreguliere — ici 85 points
+      espaces de 1 a 140 jours.
+    - `"daily"` : chaque jour du calendrier entre la premiere et la derniere
+      mesure. Ce n'est pas une interpolation : un maximum glissant sur 42
+      jours est defini chaque jour a partir des seules mesures reelles de la
+      fenetre, et les jours sans mesure n'ajoutent aucune valeur. La sortie
+      est la MEME grandeur, echantillonnee plus finement — ce que
+      `test_envelope.py` verifie point par point. Les modeles qui supposent
+      un pas d'echantillonnage constant ont besoin de cette grille.
     """
+    if calendar not in ("observations", "daily"):
+        raise ValueError(f"calendar inconnu : {calendar!r}")
     if observations.empty or spec.column not in observations.columns:
         return pd.DataFrame(columns=[date_column, spec.label, "n_in_window"])
 
@@ -77,6 +93,10 @@ def rolling_envelope(
 
     # Une seule valeur par jour : le meilleur effort du jour.
     daily = df.groupby(date_column)[spec.column].max()
+    if calendar == "daily":
+        # Les jours ajoutes sont NaN, et `rolling` les ignore : ni le maximum
+        # ni le decompte de la fenetre ne changent aux dates deja presentes.
+        daily = daily.reindex(pd.date_range(daily.index.min(), daily.index.max(), freq="D"))
     window = f"{spec.window_days}D"
     env = daily.rolling(window, min_periods=1).max()
     count = daily.rolling(window, min_periods=1).count()

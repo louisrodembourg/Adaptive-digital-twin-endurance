@@ -145,3 +145,60 @@ def test_virtualride_is_not_swept_up_with_bike():
     })
     env = envelope_series(sessions, "cp20_w", sport_filter="bike", min_periods=1)
     assert env["cp20_w_env42"].max() == 300.0
+
+
+# -- grille journaliere ----------------------------------------------------
+
+def test_daily_calendar_is_the_same_quantity_sampled_more_finely():
+    """
+    Le garde-fou de la grille journaliere. Un maximum glissant sur 42 jours
+    est defini chaque jour a partir des seules mesures reelles de la
+    fenetre : passer a une grille journaliere ne doit donc rien changer aux
+    valeurs des jours deja presents. Si ce test tombe, la grille fabrique de
+    la donnee au lieu de la reechantillonner.
+    """
+    rng = np.random.default_rng(4)
+    obs = _observations(rng.normal(4.0, 0.4, 60), freq="5D")
+    spec = EnvelopeSpec("v", window_days=42, min_periods=3)
+
+    sparse = rolling_envelope(obs, spec)
+    dense = rolling_envelope(obs, spec, calendar="daily")
+
+    aligned = dense[dense["date"].isin(sparse["date"])].reset_index(drop=True)
+    pd.testing.assert_frame_equal(aligned, sparse)
+
+
+def test_daily_calendar_fills_every_day_between_the_first_and_last_measure():
+    obs = pd.DataFrame({
+        "date": pd.to_datetime(["2019-01-01", "2019-01-02", "2019-01-03", "2019-01-20"]),
+        "v": [1.0, 2.0, 3.0, 4.0],
+    })
+    dense = rolling_envelope(obs, EnvelopeSpec("v", window_days=42, min_periods=3),
+                             calendar="daily")
+    # Du 3 janvier (3e mesure, donc min_periods atteint) au 20 janvier.
+    assert dense["date"].tolist() == pd.date_range("2019-01-03", "2019-01-20").tolist()
+    assert dense["n_in_window"].min() >= 3
+
+
+def test_daily_calendar_still_decays_once_the_window_empties():
+    """
+    Une grille journaliere ne doit pas prolonger la derniere valeur connue :
+    les jours dont la fenetre ne contient plus assez de mesures sortent, au
+    lieu d'etre remplis par report.
+    """
+    obs = pd.DataFrame({
+        "date": pd.to_datetime(["2019-01-01", "2019-01-02", "2019-01-03", "2019-06-01"]),
+        "v": [1.0, 2.0, 9.0, 4.0],
+    })
+    dense = rolling_envelope(obs, EnvelopeSpec("v", window_days=30, min_periods=3),
+                             calendar="daily")
+    # La fenetre pandas est ouverte a gauche : au 31 janvier elle ne couvre
+    # plus que les 2 et 3 janvier, donc moins de min_periods mesures.
+    assert dense["date"].max() == pd.Timestamp("2019-01-30")
+    assert pd.Timestamp("2019-06-01") not in set(dense["date"])
+
+
+def test_unknown_calendar_is_refused():
+    obs = _observations([1.0, 2.0, 3.0], freq="1D")
+    with pytest.raises(ValueError, match="calendar"):
+        rolling_envelope(obs, EnvelopeSpec("v"), calendar="weekly")
