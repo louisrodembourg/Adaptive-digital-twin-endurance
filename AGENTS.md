@@ -89,6 +89,23 @@ L'heterogeneite est reelle et non un defaut de mesure — les non detectes sont
 centres sur -0,054, donc nuls, et non positifs-mais-noyes. La domination de la
 persistance, elle, se replique a p = 0,003.
 
+**Un plan dit ce qu'il n'optimise pas.** Le planificateur cherche la charge
+MINIMALE qui delivre le stimulus demande, et non la maximale que les
+contraintes tolerent : sous une dose-reponse inconnue — elle existe chez
+quatre athletes sur treize — le cout d'une charge inutile est reel la ou son
+benefice ne l'est pas. `dose_response.py` mesure le verdict chez l'athlete
+qu'on a en face et distingue « non detectee » d'« indeterminable », parce que
+presenter une absence de mesure comme une absence d'effet est l'erreur que ce
+depot s'emploie a ne pas commettre. Aucun des verdicts n'autorise a maximiser
+une performance predite.
+
+**Un plan degrade ne se lit pas comme un plan optimal.** `optimize_week`
+retombait silencieusement sur l'heuristique des qu'une contrainte rendait le
+probleme infaisable. `WeeklyPlan.notes` porte desormais ce qui n'a pas ete
+applique — plancher rabaisse, stimulus abandonne, borne aigu/chronique
+inactive faute d'historique — et `xai_report` le publie. Une borne
+silencieusement inactive est pire qu'une borne absente.
+
 **Les tests n'ecrivent jamais dans `data/`.** Une fixture autouse le verifie
 apres chaque test et echoue sinon. Le module de sensibilite ne deroge pas :
 l'enveloppe perturbee n'existe qu'en memoire, et l'interface ne rend que des
@@ -102,7 +119,8 @@ src/config.py            configuration unique, mise en cache
 src/ingestion/           acces au jeu de donnees public (cache-first, md5)
 src/layer_a_signal/      nettoyage, features, base de temps, performance
 src/layer_b_twin/        modele de charge et modele bayesien
-src/layer_c_planner/     contraintes de securite, optimiseur, parsing LLM
+src/layer_c_planner/     contraintes de securite, optimiseur, parsing LLM,
+                         verdict de dose-reponse par athlete
 src/pipeline/            orchestrateur et provenance
 src/evaluation/          metriques, references, validation, rapport,
                          modeles de fondation, sensibilite, cohorte
@@ -117,6 +135,7 @@ python -m src.cli ingest        # construire les artefacts
 python -m src.cli calibrate     # reporter les estimations dans params.yaml
 python -m src.cli evaluate      # cinq protocoles, planchers, provenance
 python -m src.cli cohort        # replication sur le cache d'athletes
+python -m src.cli plan          # semaine proposee, et ce qu'elle ne promet pas
 pytest                          # hors ligne par defaut
 
 pip install -e ".[tsfm]"        # torch + Chronos-2 + TTM, optionnels

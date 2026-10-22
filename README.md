@@ -570,6 +570,144 @@ python -m src.cli cohort         # criblage, replication, contraste
 
 ---
 
+## Le planificateur, rendu correct sous l'incertitude mesurée
+
+Jusqu'ici ce dépôt mesurait. Le planificateur, lui, n'était **importé par
+rien** — ni test, ni tableau de bord, ni commande — et son objectif disait :
+
+```python
+# optimizer.py, avant
+obj = sum(x[j][t] * spec_vals[t] for j in range(7) for t in range(n_types))
+model.Maximize(obj)
+```
+
+Maximiser la spécificité sous un plafond de volume, c'est prescrire
+« entraîne-toi autant que la soupape l'autorise ». C'est défendable si l'on
+connaît la dose-réponse de l'athlète. Les treize athlètes du cache disent
+qu'on ne la connaît pas : elle existe chez quatre, pas chez neuf, et aucune
+variable disponible à l'inscription ne les sépare.
+
+Sous une dose-réponse inconnue, maximiser un proxy est le mauvais côté de
+l'incertitude. Le coût d'une charge inutile est réel — blessure, surmenage,
+temps — alors que son bénéfice est, chez deux athlètes sur trois, non
+mesurable.
+
+### L'objectif retourné
+
+`optimize_week` cherche désormais la charge **minimale** qui délivre le
+stimulus demandé. Pour les mêmes contraintes, le même stimulus, et une semaine
+écoulée à 250 TRIMP :
+
+| objectif | TRIMP | séances | spécificité |
+|---|---:|---:|---:|
+| `max_specificity` (historique) | 271 | 6 | 0,43 |
+| **`min_load`** (défaut) | **200** | **3** | 0,33 |
+
+26 % de charge en moins et deux fois moins de séances, pour les deux séances
+clés exigées dans les deux cas. L'ancien objectif reste accessible par
+`--objective max_specificity`, pour que les deux soient comparables plutôt
+qu'un remplacé en silence.
+
+L'écart dépend du régime, et il faut le dire : chez l'athlète du dépôt, dont la
+dernière semaine connue pèse 446 TRIMP, le plancher de rétention monte à 357 et
+les deux objectifs convergent (360 contre 365). La différence se joue quand il
+reste de la marge entre le plancher et le plafond — c'est-à-dire précisément
+quand un choix est à faire.
+
+Un plancher empêche l'inverse du problème : minimiser sans borne basse
+donnerait deux séances clés et cinq jours de repos, ce qui est un minimum au
+sens littéral et une régression au sens physiologique. Il vaut
+`min_weekly_retention_pct` de la semaine écoulée — dans `params.yaml`, pas
+dans le code.
+
+### Trois règles de sécurité qui existaient sans être branchées
+
+**La borne aigu/chronique.** `acute_chronic_ratio` vivait dans
+`load_model.py`, sa docstring la présentait comme « la seule règle de sécurité
+réellement déclenchable, contrairement au rMSSD et au DFA, elle ne demande que
+la charge, qui existe toujours » — et elle n'était appelée nulle part.
+`acwr_upper_bound: 1.5` était configuré et jamais lu. La charge de la semaine à
+venir, ramenée au jour, est maintenant bornée à 1,5 fois la charge chronique.
+
+Quand ce plafond descend sous le plancher de rétention — un athlète dont la
+base chronique s'est effondrée — le plancher est **rabaissé au plafond**, et
+non abandonné. L'abandonner ferait rendre un plan à zéro TRIMP : le minimum
+littéral, et un conseil inutile. Sur une base de 10 TRIMP/jour, le plan passe
+de 400 à 105 TRIMP et le dit.
+
+**Le contrôle de monotonie.** La monotonie de Foster est un rapport
+moyenne/écart-type, non linéaire dans les variables de décision, donc
+impossible à poser directement dans un solveur linéaire. Son contenu pratique
+l'est : une journée légère dans chaque fenêtre glissante, et des bornes de
+répétition par type de séance. Sans ces dernières l'optimiseur empilait le
+type le moins coûteux qui satisfaisait ses contraintes — il prescrivait
+**quatre séances `CALIBRATION`**, qui est un test et non un entraînement. Les
+bornes vivent dans `params.yaml`.
+
+**Les indisponibilités déclarées.** `avoid_days` — « je ne peux pas
+m'entraîner ce jour-là », extrait du contexte en langage naturel — était posé
+en `AddHint`, c'est-à-dire en suggestion que le solveur peut ignorer. Une
+indisponibilité déclarée se retrouvait donc planifiée. C'est une contrainte,
+et elle passe avant le stimulus prescrit : c'est l'athlète qui connaît son
+emploi du temps. Au passage, un `AddHint` que les contraintes rendent
+infaisable fait écrire à CP-SAT des pages d'avertissements sur la sortie
+standard, ce qui est le symptôme visible du même défaut.
+
+**Le seuil de VFC.** `safety_valve` lisait `planner.rmssd_vma_threshold`, une
+clé qui n'existe pas dans `params.yaml`. La valeur configurée sous
+`planner.hrv.rmssd_threshold_ms` n'était donc jamais lue, et un défaut codé en
+dur gagnait toujours — alors que le commentaire du fichier la présentait comme
+« seule source de vérité pour ce seuil ». Les deux valeurs étaient égales par
+hasard, ce qui rendait le défaut invisible.
+
+### Le plan dit ce qu'il n'optimise pas
+
+`dose_response.py` mesure la relation charge → performance **chez l'athlète
+qu'on a en face**, par le protocole déjà publié — même enveloppe, même
+découpage, même bootstrap apparié. Trois verdicts, et non deux :
+
+| verdict | ce qu'il signifie | droit de promettre |
+|---|---|---|
+| `detectee` | intervalle apparié excluant zéro | parler d'un effet, oui |
+| `non detectee` | assez de données, rien à voir | non |
+| `indeterminable` | pas assez de données pour regarder | non |
+
+Confondre les deux derniers présenterait une absence de mesure comme une
+absence d'effet, qui est exactement l'erreur que ce dépôt s'emploie à ne pas
+commettre. Et aucun des trois n'autorise à maximiser une performance prédite :
+le verdict n'entre pas dans l'optimisation, il entre dans le rapport.
+
+```
+$ python -m src.cli plan
+
+=== Explication du Plan (XAI) ===
+
+Ce plan cherche la charge la PLUS FAIBLE qui délivre le stimulus demandé,
+sous les contraintes de sécurité.
+Dose-reponse detectee chez cet athlete : competence +0.339 contre « moyenne »,
+IC 95 % [+0.055 · +0.524], 38 plis.
+Un effet de charge est donc démontré chez cet athlète — ce plan ne le maximise pas
+pour autant, il délivre un stimulus au moindre coût.
+```
+
+Le verdict reproduit au chiffre près celui de la cohorte, parce qu'il passe
+par le même code. Si les deux divergeaient, l'un des deux mentirait.
+
+### Un plan dégradé ne se lit plus comme un plan optimal
+
+L'ancien code retombait silencieusement sur l'heuristique dès qu'une
+contrainte rendait le problème infaisable. `WeeklyPlan` porte maintenant des
+`notes`, et le rapport les publie : plancher rabaissé, stimulus abandonné,
+borne aigu/chronique inactive faute d'historique. Une borne silencieusement
+inactive est pire qu'une borne absente.
+
+```bash
+python -m src.cli plan                              # charge minimale suffisante
+python -m src.cli plan --objective max_specificity  # comportement historique
+```
+
+---
+
 ## Architecture
 
 ```mermaid
@@ -624,9 +762,11 @@ flowchart TB
 
     subgraph C["Layer C — Planificateur"]
         direction LR
-        SAFE["safety_valve.py"]
-        OPT["optimizer.py<br/><i>OR-Tools CP-SAT</i>"]
+        DOSE["dose_response.py<br/><i>verdict par athlète</i>"]
+        SAFE["safety_valve.py<br/><i>ACWR · VFC · taper</i>"]
+        OPT["optimizer.py<br/><i>CP-SAT · charge minimale<br/>suffisante</i>"]
         SAFE --> OPT
+        DOSE --> OPT
     end
 
     UI["app/main_dashboard.py<br/><i>Streamlit · 4 pages</i>"]
@@ -636,6 +776,7 @@ flowchart TB
     STORE --> B
     B --> E
     B --> C
+    E --> DOSE
     E --> UI
     C --> UI
     STORE --> UI
@@ -659,6 +800,7 @@ python -m src.cli calibrate                 # reporter les estimations
 python -m src.cli state                     # résumer ce qui existe
 python -m src.cli evaluate                  # cinq protocoles + planchers
 python -m src.cli cohort                    # répliquer sur le cache d'athlètes
+python -m src.cli plan                      # proposer une semaine, et ce qu'elle vaut
 
 streamlit run app/main_dashboard.py
 pytest                                      # hors ligne par défaut
@@ -734,6 +876,11 @@ grandeur comparable disponible chez assez de sujets du cache. Tout ce que le
 dépôt affirme sur la *course* repose encore sur un athlète, et cet athlète se
 trouve être l'un des quatre répondeurs de la cohorte — un cas favorable, choisi
 pour d'autres raisons.
+
+**Le planificateur ne connaît pas le futur de la charge.** Il propose une
+semaine sous contraintes ; il ne prévoit pas ce qu'elle produira, et le
+verdict de dose-réponse qu'il affiche est mesuré sur le passé de l'athlète.
+Rien ne garantit qu'un répondeur le reste.
 
 **Qui répond reste inexpliqué.** Quatre athlètes sur treize montrent un effet
 de charge dont l'intervalle exclut zéro, neuf non. Ni la charge moyenne, ni sa
@@ -816,6 +963,12 @@ documentées. Le détail est dans [`AGENTS.md`](AGENTS.md).
   leur moyenne : combien d'athlètes voient l'effet, chez combien l'intervalle
   exclut zéro, et dans quel sens se trompent les autres. C'est ce qui a montré
   que l'effet mesuré chez l'athlète de référence ne se généralise pas.
+- **Un plan dit ce qu'il n'optimise pas.** Le planificateur cherche la charge
+  minimale qui délivre le stimulus, jamais la maximale tolérée : sous une
+  dose-réponse inconnue, le coût d'une charge inutile est réel là où son
+  bénéfice ne l'est pas. Et `WeeklyPlan.notes` publie ce que le solveur a dû
+  abandonner — un plan dégradé qui ne s'annonce pas se lit comme un plan
+  optimal.
 - **Les tests n'écrivent jamais dans `data/`** ; une fixture le vérifie après
   chaque test. Le module de sensibilité ne déroge pas : l'enveloppe perturbée
   n'existe qu'en mémoire et l'interface ne rend que des statistiques, jamais
