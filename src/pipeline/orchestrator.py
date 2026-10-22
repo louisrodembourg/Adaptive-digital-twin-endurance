@@ -45,6 +45,7 @@ from ..layer_a_signal.performance import (
     fit_reference_curve,
     mean_max_speed,
 )
+from ..layer_b_twin.load_model import LOAD_COLUMNS, OTHER_FAMILY, sport_family
 from .provenance import DataSource, ProvenanceSummary, summarize
 
 log = logging.getLogger(__name__)
@@ -381,25 +382,43 @@ def build_daily_load(sessions: pd.DataFrame) -> pd.DataFrame:
 
     Les jours sans seance valent zero et doivent exister : le modele les
     parcourt pour faire decroitre fitness et fatigue.
+
+    La charge est aussi ventilee par discipline (`trimp_run`, `trimp_bike`,
+    `trimp_other`), parce que la cible de performance ne mesure QUE la course
+    a pied : opposer a un index de vitesse en course un TRIMP aux deux tiers
+    cycliste force un coefficient unique a moyenner deux transferts
+    differents. Les canaux somment exactement a `trimp`, qui reste la colonne
+    de reference.
     """
+    columns = ["date", "trimp", *LOAD_COLUMNS, "n_sessions", "sources"]
     if sessions.empty:
-        return pd.DataFrame(columns=["date", "trimp", "n_sessions", "sources"])
+        return pd.DataFrame(columns=columns)
 
     df = sessions.copy()
     df["date"] = pd.to_datetime(df["date"]).dt.normalize()
     df["trimp"] = pd.to_numeric(df["trimp"], errors="coerce").fillna(0.0)
+    df["family"] = df["sport"].map(sport_family) if "sport" in df.columns else OTHER_FAMILY
 
     grouped = df.groupby("date").agg(
         trimp=("trimp", "sum"),
         n_sessions=("session_id", "count"),
         sources=("source", lambda s: "|".join(sorted(set(s)))),
     )
+    by_family = (df.pivot_table(index="date", columns="family", values="trimp",
+                                aggfunc="sum", fill_value=0.0)
+                 .rename(columns=lambda f: f"trimp_{f}"))
+    grouped = grouped.join(by_family, how="left")
+
     calendar = pd.date_range(grouped.index.min(), grouped.index.max(), freq="D")
     out = grouped.reindex(calendar)
     out["trimp"] = out["trimp"].fillna(0.0)
+    for column in LOAD_COLUMNS:
+        # Une famille absente de cet athlete vaut zero partout plutot que de
+        # manquer : les consommateurs indexent par nom de colonne.
+        out[column] = out[column].fillna(0.0) if column in out else 0.0
     out["n_sessions"] = out["n_sessions"].fillna(0).astype(int)
     out["sources"] = out["sources"].fillna("")
-    return out.rename_axis("date").reset_index()
+    return out.rename_axis("date").reset_index()[columns]
 
 
 # ── etage 5 : observations de performance ─────────────────────────────────
@@ -410,10 +429,26 @@ def build_perf_observations(
     reference: ReferenceCurve,
     cfg: Config | None = None,
 ) -> pd.DataFrame:
-    """Retient les efforts assez maximaux pour servir de mesure."""
+    """
+    Retient les efforts assez maximaux pour servir de mesure.
+
+    Produit `perf_index` — le meilleur rapport toutes durees confondues, qui
+    reste la cible historique — ET une colonne par duree. La raison est que
+    `perf_index` prend un maximum SUR LES DUREES, puis `rolling_envelope`
+    reprend un maximum sur 42 jours : un double cliquet, d'ou
+    l'autocorrelation a 0,97 qui rend la persistance imbattable par
+    construction. Or un plafond a 5 minutes et un plafond a 60 minutes ne
+    repondent pas au meme entrainement ni sur la meme echelle de temps ; les
+    ecraser en un scalaire supprime la dose-reponse qu'on cherche a mesurer.
+
+    Les rapports par duree sont emis pour toute seance retenue, y compris aux
+    durees ou l'effort n'etait pas maximal : une enveloppe glissante prend un
+    maximum, donc une valeur basse ne peut que perdre, jamais polluer.
+    """
     cfg = cfg or load_config()
     perf_cfg = cfg.performance
     rows = []
+    index_columns = [f"perf_index_{int(d)}" for d in reference.durations_s]
 
     for _, s in sessions.iterrows():
         if not s.get("is_run", False):
@@ -447,7 +482,7 @@ def build_perf_observations(
         ):
             flags.append("hilly")
 
-        rows.append({
+        row = {
             "session_id": s["session_id"],
             "date": s["date"],
             "perf_index": float(best_index),
@@ -455,11 +490,18 @@ def build_perf_observations(
             "speed_ms": float(best_v),
             "source": s["source"],
             "quality_flags": "|".join(flags),
-        })
+        }
+        for d in reference.durations_s:
+            v = mmp.get(int(d))
+            ref_v = reference.speed_at(int(d))
+            ok = (v is not None and np.isfinite(_as_float(v))
+                  and np.isfinite(ref_v) and ref_v > 0)
+            row[f"perf_index_{int(d)}"] = float(v / ref_v) if ok else float("nan")
+        rows.append(row)
 
     return pd.DataFrame(rows, columns=[
         "session_id", "date", "perf_index", "duration_s", "speed_ms",
-        "source", "quality_flags",
+        "source", "quality_flags", *index_columns,
     ])
 
 

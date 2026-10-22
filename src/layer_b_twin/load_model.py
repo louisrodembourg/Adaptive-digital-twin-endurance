@@ -132,3 +132,79 @@ def acute_chronic_ratio(daily_load: pd.DataFrame, acute_days: int = 7,
     acute = loads.rolling(acute_days, min_periods=acute_days).mean()
     chronic = loads.rolling(chronic_days, min_periods=chronic_days).mean()
     return (acute / chronic.replace(0.0, np.nan)).rename("acwr")
+
+
+# ── decomposition de la charge par discipline ─────────────────────────────
+#
+# Pourquoi decomposer : la cible du projet est un rapport de vitesses EN
+# COURSE A PIED, et sur la fenetre d'evaluation 68,5 % du TRIMP vient du velo
+# (64,7 % Bike + 3,8 % VirtualRide) contre 30,2 % de la course. Un modele a
+# coefficient unique doit donc trouver un k1 qui vaille a la fois pour un
+# kilojoule de velo et pour un kilometre de course. Le transfert velo ->
+# course est partiel et de constante de temps differente, alors que la
+# fatigue se cumule pleinement : un coefficient unique moyenne un transfert
+# positif et un transfert quasi nul, et sort zero. C'est une explication
+# mesurable du resultat nul du depot, distincte de « la charge n'explique
+# rien ».
+#
+# Le total `trimp` reste la colonne de reference et n'est pas touche : les
+# six lignes publiees dans le README en dependent et doivent rester
+# reproductibles au chiffre pres.
+
+SPORT_FAMILIES: dict[str, tuple[str, ...]] = {
+    "run": ("run",),
+    # VirtualRide est une discipline distincte dans GoldenCheetah mais la meme
+    # charge physiologique qu'une sortie velo : on la regroupe ici, alors que
+    # `envelope.envelope_series` la laisse separee parce qu'une VITESSE sur
+    # home-trainer n'est pas comparable a une vitesse sur route.
+    "bike": ("bike", "virtualride", "ride"),
+}
+OTHER_FAMILY = "other"
+
+#: Colonnes de charge produites par `build_daily_load`, dans un ordre stable.
+LOAD_COLUMNS: tuple[str, ...] = ("trimp_run", "trimp_bike", "trimp_other")
+
+
+def sport_family(sport: object) -> str:
+    """
+    Range une discipline dans une famille de charge.
+
+    La natation tombe dans `other` et non dans une famille propre : son TRIMP
+    vaut 0,0 % du total parce que les fichiers de natation du jeu de donnees
+    n'ont pas de canal de frequence cardiaque. Une colonne identiquement
+    nulle n'apporte aucune colonne de regression, elle en casse une.
+    """
+    name = str(sport or "").strip().lower()
+    for family, prefixes in SPORT_FAMILIES.items():
+        if any(name.startswith(p) for p in prefixes):
+            return family
+    return OTHER_FAMILY
+
+
+def compute_load_curves_by_sport(
+    daily_load: pd.DataFrame,
+    tau1: float = 42.0,
+    tau2: float = 12.0,
+    columns: tuple[str, ...] = LOAD_COLUMNS,
+) -> pd.DataFrame:
+    """
+    Fitness et fatigue par discipline, sur le meme calendrier.
+
+    Les constantes de temps sont partagees entre disciplines : les separer
+    aussi ajouterait quatre parametres a estimer sur 90 observations, alors
+    que la question posee ici est celle des COEFFICIENTS (un kilojoule de
+    velo vaut-il autant qu'un kilometre de course ?), pas celle des delais.
+    """
+    missing = [c for c in columns if c not in daily_load.columns]
+    if missing:
+        raise ValueError(
+            f"Colonnes de charge absentes : {missing}. "
+            "Relancer `cli ingest` : `build_daily_load` les produit."
+        )
+    out = pd.DataFrame({"date": pd.DatetimeIndex(pd.to_datetime(daily_load["date"]))})
+    for column in columns:
+        family = column.removeprefix("trimp_")
+        curves = compute_load_curves(daily_load, tau1, tau2, trimp_column=column)
+        out[f"fitness_{family}"] = curves.fitness
+        out[f"fatigue_{family}"] = curves.fatigue
+    return out
