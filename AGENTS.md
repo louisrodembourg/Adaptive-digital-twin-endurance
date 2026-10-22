@@ -36,6 +36,26 @@ R2 d'ajustement ne prouve rien. Toute variante passe par
 `src/evaluation/`, contre les references declarees dans `baselines.py`. Les
 decoupages respectent l'ordre du temps.
 
+**Ni sans intervalle quand l'ecart est mince.** Deux variantes evaluees sous
+le meme decoupage predisent les memes points : soustraire leurs R2 ne dit pas
+si l'ecart depasse le bruit. `report.paired_table` fait un bootstrap apparie
+par blocs — par plis, pas par jours, les erreurs d'un pli etant autocorrelees.
+Chronos-2 arrive premier de 0,003 de R2 sur la persistance ; l'intervalle dit
+que ce n'est rien, et c'est l'intervalle qui est publie.
+
+**Une variante qui n'a rien execute ne publie rien.** `cross_validate` avale
+les exceptions d'un prediteur : une variante cassee ressort en `folds = 0`
+avec des NaN partout, ce qui ressemble a un resultat. `cli evaluate` sort en
+erreur dans ce cas, et avertit quand deux variantes n'ont pas couvert le meme
+nombre de plis — un modele dont la tete est entrainee sur un horizon court
+echoue sur les plis longs et sa ligne porte alors sur moins de points.
+
+**Aucune capacite annoncee n'est crue sur parole.** La fiche de TTM annonce
+l'integration de variables exogenes ; en zero-shot son dorsal est independant
+par canal et la prevision ne bouge pas d'un bit quand on remplace les
+covariables. Un test le mesure, et `SPECS` dans `foundation.py` porte ce que
+chaque modele fait reellement — pas ce que sa fiche promet.
+
 **Les tests n'ecrivent jamais dans `data/`.** Une fixture autouse le verifie
 apres chaque test et echoue sinon.
 
@@ -58,7 +78,11 @@ app/                     tableau de bord Streamlit
 pip install -e ".[dev]"
 python -m src.cli ingest        # construire les artefacts
 python -m src.cli calibrate     # reporter les estimations dans params.yaml
+python -m src.cli evaluate      # tableaux d'evaluation + provenance
 pytest                          # hors ligne par defaut
+
+pip install -e ".[tsfm]"        # torch + Chronos-2 + TTM, optionnels
+python -m src.cli evaluate --models chronos2,ttm
 ruff check src app tests
 streamlit run app/main_dashboard.py
 ```
