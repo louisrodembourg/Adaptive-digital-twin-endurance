@@ -106,6 +106,13 @@ applique — plancher rabaisse, stimulus abandonne, borne aigu/chronique
 inactive faute d'historique — et `xai_report` le publie. Une borne
 silencieusement inactive est pire qu'une borne absente.
 
+**Une charge doit disputer le signal au passage du temps.** Un premier
+ajustement hierarchique laissait tau1 fuir a 127 jours, soit 4,6 ecarts-types
+au-dela de son prior : a cette constante, la charge cumulee EST une tendance,
+et le gain mesurait l'une en croyant mesurer l'autre. Tout modele de charge
+porte donc un terme de tendance concurrent — il n'est pas la pour ameliorer
+l'ajustement mais pour le lui disputer.
+
 **Un seuil ne se recopie pas.** `readiness.py` annonce quand chaque capacite
 devient disponible — 28 jours pour la borne aigu/chronique, trois mesures pour
 l'enveloppe, huit plis pour le verdict. Chacun est celui qu'une fonction impose
@@ -132,7 +139,8 @@ docs/architecture.md     modules, flux, mise en route
 src/config.py            configuration unique, mise en cache
 src/ingestion/           acces au jeu de donnees public (cache-first, md5)
 src/layer_a_signal/      nettoyage, features, base de temps, performance
-src/layer_b_twin/        modele de charge et modele bayesien
+src/layer_b_twin/        modele de charge, modele bayesien,
+                         mise en commun hierarchique des athletes
 src/layer_c_planner/     contraintes de securite, optimiseur, parsing LLM,
                          verdict de dose-reponse par athlete
 src/pipeline/            orchestrateur et provenance
@@ -150,6 +158,7 @@ python -m src.cli calibrate     # reporter les estimations dans params.yaml
 python -m src.cli evaluate      # cinq protocoles, planchers, provenance
 python -m src.cli cohort        # replication sur le cache d'athletes
 python -m src.cli plan          # semaine proposee, et ce qu'elle ne promet pas
+python -m src.cli pool          # ajustement hierarchique (lent : des dizaines de minutes)
 pytest                          # hors ligne par defaut
 
 pip install -e ".[tsfm]"        # torch + Chronos-2 + TTM, optionnels
