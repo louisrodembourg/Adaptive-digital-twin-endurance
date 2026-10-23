@@ -37,6 +37,7 @@ from .evaluation.cohort import (
     format_cohort,
     format_contrast,
     run_cohort,
+    screen_cache,
     summarise_cohort,
 )
 from .evaluation.foundation import SPECS, build_forecast_context, is_available, variant_name
@@ -69,6 +70,7 @@ from .layer_c_planner.optimizer import StimulusTarget, optimize_week
 from .layer_c_planner.safety_valve import check_safety_constraints
 from .pipeline.orchestrator import (
     OpenDataSpec,
+    build_daily_load,
     load_calibration,
     load_daily_load,
     load_perf_observations,
@@ -271,6 +273,8 @@ PROVENANCE_FILE = "evaluation_provenance.json"
 DURATIONS_FILE = "evaluation_durations.parquet"
 FLOORS_FILE = "evaluation_detectability.parquet"
 COHORT_FILE = "cohort_replication.parquet"
+POOLING_FILE = "pooling_summary.parquet"
+POOLING_EFFECTS_FILE = "pooling_effects.parquet"
 
 
 def _package_versions(models: tuple[str, ...]) -> dict[str, str]:
@@ -577,6 +581,17 @@ def build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--skip-dose-check", action="store_true",
                     help="ne pas mesurer la dose-reponse (plus rapide)")
     pl.set_defaults(func=cmd_plan)
+
+    po = sub.add_parser("pool", help="ajuster le modele hierarchique sur la cohorte")
+    po.add_argument("--draws", type=int, default=400, help="tirages conserves par chaine")
+    po.add_argument("--tune", type=int, default=400, help="iterations d'adaptation")
+    po.add_argument("--chains", type=int, default=2, help="chaines (deux au minimum pour r_hat)")
+    po.add_argument("--cores", type=int, default=1,
+                    help="chaines en parallele ; 1 par defaut, le parallele plante sur ce graphe")
+    po.add_argument("--stride", type=int, default=28,
+                    help="un point d'enveloppe tous les N jours")
+    po.add_argument("--seed", type=int, default=0)
+    po.set_defaults(func=cmd_pool)
     return p
 
 
@@ -679,6 +694,70 @@ def cmd_plan(args, cfg: Config) -> int:
     print(f"\nCharge de reference : {previous:.0f} TRIMP sur les sept derniers "
           "jours connus")
     return 0
+
+
+
+def cmd_pool(args, cfg: Config) -> int:
+    """
+    Ajuste le modele hierarchique sur les athletes du cache.
+
+    Couteux : l'echantillonnage demande des dizaines de minutes, parce que le
+    noyau de convolution se reconstruit a chaque evaluation du gradient et que
+    tau est echantillonne. Les chaines tournent en SEQUENTIEL par defaut : en
+    parallele, les processus fils de PyMC meurent sur ce graphe
+    (`EOFError`) — un plantage silencieux vaut moins qu'une attente annoncee.
+    """
+    from .layer_b_twin.hierarchical import (
+        CohortData,
+        build_hierarchical_model,
+        per_athlete_effects,
+        prepare_athlete,
+        summarise_pooling,
+    )
+
+    blocks = []
+    for frames in screen_cache(cfg.paths.cache / "opendata",
+                               CohortCriteria(min_folds=0)):
+        block = prepare_athlete(frames.uuid, build_daily_load(frames.sessions),
+                                frames.power, stride_days=args.stride)
+        if block is not None:
+            blocks.append(block)
+    data = CohortData(tuple(blocks), stride_days=args.stride)
+    if data.n_athletes == 0:
+        print("Aucun athlete exploitable dans le cache.", file=sys.stderr)
+        return 1
+
+    print(data.describe())
+    print(f"\nEchantillonnage : {args.chains} chaine(s) de {args.tune} + "
+          f"{args.draws} iterations, en sequentiel. Comptez des dizaines de "
+          "minutes.\n")
+
+    import pymc as pm
+
+    model = build_hierarchical_model(data)
+    with model:
+        trace = pm.sample(draws=args.draws, tune=args.tune, chains=args.chains,
+                          cores=args.cores, target_accept=0.9,
+                          random_seed=args.seed, progressbar=False)
+
+    summary = summarise_pooling(trace, data)
+    effects = per_athlete_effects(trace, data)
+    divergences = int(trace.sample_stats.diverging.sum())
+
+    print(summary.to_string(index=False))
+    print()
+    print(effects.to_string(index=False))
+    print(f"\nDivergences : {divergences}")
+    if divergences:
+        # Une divergence invalide la geometrie exploree : le dire, et ne pas
+        # laisser lire le tableau comme un posterieur propre.
+        print("Posterieur a ne pas interpreter tel quel — relancer avec un "
+              "`target_accept` plus eleve.", file=sys.stderr)
+
+    summary.to_parquet(cfg.paths.processed / POOLING_FILE, index=False)
+    effects.to_parquet(cfg.paths.processed / POOLING_EFFECTS_FILE, index=False)
+    print(f"\nEcrit : {cfg.paths.processed / POOLING_FILE}")
+    return 0 if divergences == 0 else 1
 
 
 def main(argv: list[str] | None = None) -> int:
