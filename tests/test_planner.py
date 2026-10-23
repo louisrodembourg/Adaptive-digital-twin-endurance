@@ -312,11 +312,21 @@ def test_missing_data_is_undetermined_and_not_absent(observations, fragment):
     assert not verdict.may_claim_performance_effect
 
 
-def test_a_short_history_is_undetermined():
+def test_a_short_history_is_undetermined_and_says_how_much_is_missing():
+    """
+    « Indeterminable » ne dit rien a l'athlete ; « il manque environ 224 jours »
+    lui dit quoi attendre. Le compte est la partie actionnable du verdict.
+    """
     daily = _daily(n=200)
     verdict = assess_dose_response(_responder(daily), daily)
     assert verdict.verdict == UNDETERMINED
-    assert "plis" in verdict.reason
+    assert "pli" in verdict.reason
+    assert "il manque environ" in verdict.reason
+    # Le compte est les plis manquants fois l'horizon : sur 200 jours un seul
+    # pli existe, donc (8 - 1) x 28 = 196 jours. Exprime comme une regle et
+    # non comme un litteral, pour qu'il suive un changement de seuil.
+    assert verdict.folds == 1
+    assert f"{(8 - verdict.folds) * 28} jour(s)" in verdict.reason
 
 
 def test_a_missing_load_column_says_what_to_do():

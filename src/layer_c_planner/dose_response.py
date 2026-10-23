@@ -141,10 +141,14 @@ def assess_dose_response(
                                  min_train_days=min_train_days,
                                  step_days=horizon_days))
     if len(splits) < min_folds:
+        # Compter les jours qui manquent, et pas seulement les plis :
+        # « indeterminable » ne dit rien a l'athlete, « il manque 224 jours »
+        # lui dit quoi attendre.
+        missing_days = (min_folds - len(splits)) * horizon_days
         return DoseResponse(
             UNDETERMINED, load_column=load_column, folds=len(splits),
-            reason=(f"{len(splits)} plis pour un minimum de {min_folds} — "
-                    "historique trop court pour conclure"))
+            reason=(f"{len(splits)} pli(s) pour un minimum de {min_folds} — "
+                    f"il manque environ {missing_days} jour(s) d'historique"))
 
     try:
         variant = specific_variant(load_column, tau1, tau2)

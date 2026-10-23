@@ -40,6 +40,7 @@ from .evaluation.cohort import (
     summarise_cohort,
 )
 from .evaluation.foundation import SPECS, build_forecast_context, is_available, variant_name
+from .evaluation.readiness import assess_readiness, format_readiness
 from .evaluation.report import (
     BIKE_SPORTS,
     BIKE_TARGET_COLUMN,
@@ -239,6 +240,19 @@ def cmd_state(args, cfg: Config) -> int:
               f"max {obs['perf_index'].max():.3f}")
     else:
         print("\nAucune observation de performance — le modele ne peut pas etre ajuste.")
+
+    # L'echelle de maturite : quelles capacites sont disponibles aujourd'hui,
+    # et ce qui manque aux autres. Sans elle, un athlete recent lit « aucune
+    # observation de performance » sans savoir si c'est normal ni pour
+    # combien de temps encore.
+    lowered = sessions["sport"].astype(str).str.lower()
+    bike = sessions[lowered.str.startswith(BIKE_SPORTS)]
+    power = (bike[["date", BIKE_TARGET_COLUMN]].dropna()
+             .rename(columns={BIKE_TARGET_COLUMN: "pi"})
+             if BIKE_TARGET_COLUMN in sessions.columns else pd.DataFrame())
+    print()
+    print(format_readiness(assess_readiness(
+        daily, power, cohort=cfg.paths.processed / COHORT_FILE)))
 
     ref = pd.to_numeric(sessions.get("trimp_reference"), errors="coerce")
     ours = pd.to_numeric(sessions.get("trimp"), errors="coerce")
