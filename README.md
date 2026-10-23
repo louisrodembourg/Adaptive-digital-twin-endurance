@@ -90,6 +90,7 @@ python -m src.cli calibrate   # FC max/repos estimées, jamais supposées
 python -m src.cli evaluate    # 5 protocoles + planchers de détectabilité
 python -m src.cli cohort      # réplication sur 13 athlètes
 python -m src.cli plan        # une semaine, et ce qu'elle ne promet pas
+python -m src.cli pool        # modèle hiérarchique sur la cohorte (~25 min)
 ```
 
 Le planificateur mérite un mot, parce qu'il découle directement de la mesure.
@@ -178,6 +179,21 @@ test le mesure.
 venait de l'athlète de référence du dépôt. Il s'est avéré être l'un des quatre
 répondeurs sur treize — réel, mais pas typique.
 
+**Ajuster n'est pas prédire, et j'ai pu le chiffrer.** Un modèle hiérarchique
+sur quatorze athlètes trouve un effet de charge excluant zéro chez **12 d'entre
+eux**. Le protocole hors échantillon, sur les mêmes données, n'en trouve que
+**4 sur 13**. Même modèle, mêmes athlètes : il explique le passé chez presque
+tous et n'en prévoit la suite que chez un tiers. C'est la signature du
+surapprentissage, et c'est pourquoi aucun ajustement n'est publié ici sans son
+pendant hors échantillon.
+
+**La mise en commun a quand même rendu quelque chose.** Les constantes de temps
+du modèle de Banister ne sont pas identifiables sur un athlète — le postérieur
+ne resserre τ₁ que de 41 % par rapport à son prior. Partagées entre quatorze
+athlètes, elles sortent à 51,7 jours [29,2 · 76,3] et 19,0 [9,9 · 27,9]. Le
+gain ne dépendait d'aucun résultat favorable sur la charge, juste du nombre de
+sujets.
+
 **Le code mort mentait.** Trois règles de sécurité existaient sans être
 branchées : le rapport charge aiguë sur charge chronique, un seuil de VFC lu
 sous une clé absente de la configuration, et une indisponibilité déclarée par
@@ -193,11 +209,11 @@ gain — même modèle, autre paramétrisation — le ramène à **26 minutes**.
 
 ## Ce que je ferais ensuite
 
-Un modèle hiérarchique à pooling partiel, pour **quantifier** l'hétérogénéité
-entre athlètes au lieu de la constater, et rendre les constantes de temps
-identifiables — ce qu'elles ne sont pas sur un athlète seul. Puis élargir la
-cohorte au-delà de treize sujets, parce que « qui répond ? » reste sans
-réponse.
+Élargir la cohorte au-delà de quatorze sujets. C'est devenu le facteur
+limitant : le modèle hiérarchique estime la dispersion entre athlètes à
+0,21 avec un intervalle qui touche zéro, donc sur ce nombre de sujets il ne
+peut pas démontrer qu'ils diffèrent. Et « qui répond ? » reste sans réponse,
+pour la même raison.
 
 ---
 

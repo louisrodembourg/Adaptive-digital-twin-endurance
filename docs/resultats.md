@@ -570,6 +570,98 @@ python -m src.cli cohort         # criblage, replication, contraste
 
 ---
 
+## Ce que la mise en commun des athlètes ajoute
+
+Rejouer le protocole athlète par athlète compte des verdicts : quatre sujets
+sur treize montrent un effet, neuf non. Cela ne dit pas **de combien** ils
+diffèrent — un test du signe ne mesure pas une dispersion. Un modèle
+hiérarchique l'estime, et partage les constantes de temps pour qu'elles soient
+contraintes par quatorze historiques au lieu d'un.
+
+`python -m src.cli pool` — quatorze athlètes, 373 points d'enveloppe (un tous
+les 28 jours), quatre chaînes de 400 + 400 itérations en 24 minutes,
+**zéro divergence**, `r_hat` ≤ 1,01.
+
+| paramètre | moyenne | écart-type | HDI 94 % | ESS |
+|---|---:|---:|---|---:|
+| **τ₁ (fitness, jours)** | **51,7** | 13,5 | **[29,2 · 76,3]** | 622 |
+| **τ₂ (fatigue, jours)** | **19,0** | 4,8 | **[9,9 · 27,9]** | 783 |
+| μ effet net | +0,483 | 0,097 | [+0,293 · +0,654] | 991 |
+| **σ effet net** | **0,212** | 0,112 | **[0,000 · 0,393]** | 338 |
+| μ gain fatigue | +0,057 | 0,215 | [−0,333 · +0,461] | 867 |
+| σ gain fatigue | 0,461 | 0,214 | [+0,021 · +0,819] | 575 |
+| μ tendance | +0,006 | 0,126 | [−0,217 · +0,255] | 838 |
+| **σ tendance** | **0,413** | 0,097 | **[+0,259 · +0,608]** | 810 |
+
+Les gains s'expriment en écarts-types d'enveloppe par écart-type de
+`fitness − fatigue` : chaque cible est centrée-réduite sur son propre
+historique, sans quoi mettre en commun un gain reviendrait à mélanger des
+watts et non des effets.
+
+### Les constantes de temps sont enfin identifiées
+
+C'était l'objectif principal. Sur un athlète seul, le postérieur du dépôt ne
+resserre τ₁ que de **41 %** par rapport à son prior : les données ne
+l'identifient pas. Partagée sur quatorze historiques, elle sort à **51,7 jours
+[29,2 · 76,3]**, et τ₂ à **19,0 [9,9 · 27,9]** — des intervalles informatifs,
+compatibles avec les valeurs de la littérature (42 et 12 jours) sans les
+reprendre.
+
+C'est le gain net de la mise en commun, et il ne dépendait d'aucun résultat
+favorable sur la charge.
+
+### L'hétérogénéité est estimée, et elle n'est pas établie
+
+`σ` de l'effet net vaut **0,212, HDI [0,000 · 0,393]**. L'intervalle **touche
+zéro** : sur quatorze athlètes, ce modèle ne peut pas démontrer qu'ils
+diffèrent. Il ne démontre pas non plus qu'ils sont identiques — l'intervalle
+couvre aussi 0,39, soit une dispersion comparable à l'effet moyen lui-même.
+
+C'est un résultat plus faible que ce que la cohorte suggérait, et il faut le
+dire dans ce sens-là : constater quatre répondeurs sur treize ne suffit pas à
+établir une variance inter-individus. Le nombre de sujets est le facteur
+limitant, et l'ESS par chaîne de ce paramètre reste sous 100 — c'est la ligne
+la moins fiable du tableau, et c'est précisément celle qu'on voudrait citer.
+
+### La charge n'hérite pas d'une tendance partagée
+
+Un premier ajustement, sans terme de tendance, laissait τ₁ fuir à **127 jours**
+— 4,6 écarts-types au-delà de son prior. À cette constante, la charge cumulée
+*est* une tendance, et le gain mesurait l'une en croyant mesurer l'autre.
+
+Avec une tendance concurrente par athlète, τ₁ retombe à 51,7 et le verdict est
+net : **μ tendance = +0,006 [−0,217 · +0,255]**, centré sur zéro, alors que
+**σ tendance = 0,413 [+0,259 · +0,608]** exclut zéro. Les athlètes ont donc de
+vraies tendances, dans les deux sens, qui s'annulent en moyenne — et le terme
+de charge ne capte pas une dérive commune. Le contrôle passe.
+
+### Et voici la signature du surapprentissage, chiffrée
+
+| | athlètes avec un effet excluant zéro |
+|---|---|
+| ajustement hiérarchique (**dans** l'échantillon) | **12 / 14** |
+| protocole à horizon (**hors** échantillon) | **4 / 13** |
+
+Ce n'est pas une contradiction, c'est l'observation fondatrice du dépôt mise en
+chiffres : **ajuster n'est pas prédire.** Le même modèle, sur les mêmes
+athlètes, explique la performance passée chez presque tous et n'en prévoit la
+suite que chez un tiers. Un postérieur bayésien favorable ne vaut donc rien
+comme preuve de capacité prédictive — et c'est exactement pour cela que ce
+dépôt ne publie jamais un ajustement sans son pendant hors échantillon.
+
+### Deux réserves
+
+**Quatorze athlètes ici, treize dans le protocole à horizon.** Le critère
+d'inclusion n'est pas le même : ce modèle demande des points d'enveloppe, pas
+des plis de validation. Les deux chiffres ne se comparent pas ligne à ligne.
+
+**Un point tous les 28 jours.** L'enveloppe est un maximum glissant sur
+42 jours, donc très redondante au pas journalier, et le noyau de convolution
+coûte `n_points × n_jours` par athlète. C'est la même grandeur, lue moins
+souvent — mais c'est un choix de coût, et il est déclaré.
+
+---
+
 ## Le planificateur, rendu correct sous l'incertitude mesurée
 
 Jusqu'ici ce dépôt mesurait. Le planificateur, lui, n'était **importé par
