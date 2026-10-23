@@ -115,6 +115,12 @@ L'athlète de référence est l'un des quatre répondeurs. Chez les neuf autres,
 dernière phrase devient « ce plan n'optimise aucune performance prédite, et ne
 peut pas en promettre » — et c'est l'information utile.
 
+Ce verdict demande plus de quatre cents jours d'historique. `cli state` rend
+donc une **échelle de maturité** : quelles capacités sont disponibles
+aujourd'hui, ce qui manque aux autres en jours, et — tant que l'athlète n'a pas
+son propre verdict — ce que la cohorte permet d'affirmer en attendant. Détail
+dans [la méthode](docs/methode.md#léchelle-de-maturité).
+
 ---
 
 ## La technologie
@@ -191,9 +197,7 @@ Un modèle hiérarchique à pooling partiel, pour **quantifier** l'hétérogén�
 entre athlètes au lieu de la constater, et rendre les constantes de temps
 identifiables — ce qu'elles ne sont pas sur un athlète seul. Puis élargir la
 cohorte au-delà de treize sujets, parce que « qui répond ? » reste sans
-réponse. Et traiter le démarrage à froid : le verdict de dose-réponse demande
-six mois de données, donc le système devrait savoir dire ce qu'il peut
-affirmer au jour 1, au jour 30, au jour 180.
+réponse.
 
 ---
 

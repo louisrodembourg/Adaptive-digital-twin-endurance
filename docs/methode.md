@@ -111,6 +111,66 @@ ce protocole ne peut pas exclure un gain réel de covariable allant jusqu'à
 
 ---
 
+## L'échelle de maturité
+
+Le verdict de dose-réponse exige 180 jours de contexte puis huit plis de
+28 jours, soit plus de quatre cents jours d'historique. Avant cela
+`assess_dose_response` rend « indéterminable » — exact, et inutile : un
+nouvel utilisateur n'entend rien pendant plus d'un an sans savoir ni
+pourquoi, ni combien de temps encore.
+
+Les capacités du système n'apparaissent pourtant pas toutes en même temps.
+`src/evaluation/readiness.py` rend l'échelle, et pour chaque barreau manquant
+ce qui manque, en jours ou en mesures :
+
+| capacité | seuil | imposé par |
+|---|---|---|
+| charge (fitness, fatigue) | 1 jour ; stabilisée après ~τ₁ = 42 j | `compute_load_curves` |
+| borne aiguë/chronique | 28 jours pleins | `optimizer._chronic_daily_load` |
+| seuils de fraîcheur propres | 30 points | `load_model.form_thresholds` |
+| enveloppe de performance | 3 mesures dans 42 jours | `rolling_envelope` |
+| prévision évaluable | 1 pli | `horizon_splits` |
+| verdict de dose-réponse | 8 plis | `assess_dose_response` |
+
+**Aucun seuil n'est recopié.** Chacun est celui qu'une fonction impose
+vraiment, et les comptages passent par ces fonctions — `horizon_splits` pour
+les plis, `rolling_envelope` pour l'enveloppe. Un seuil recopié dériverait le
+jour où la fonction change, et l'échelle deviendrait un mensonge rassurant.
+Un test échoue si l'un des deux bouge.
+
+### Ce que le système peut dire au premier jour
+
+Rien sur l'athlète — mais quelque chose de mesuré sur la population :
+
+```
+$ python -m src.cli state      # extrait, athlète au dixième jour
+
+Maturite : 1/6 capacites disponibles
+
+  [oui] charge (fitness, fatigue)          10 jour(s) de calendrier, pas encore stabilisee (t1 = 42 j)
+  [non] borne aigu/chronique               exige 28 jours pleins de charge chronique
+                                          manque : 18 jour(s) de calendrier
+  [non] seuils de fraicheur propres        exige 30 points de fraicheur
+                                          manque : 20 jour(s) de calendrier
+  [non] enveloppe de performance           0 mesure(s)
+                                          manque : 3 mesure(s) dans une fenetre de 42 jours
+  [non] prevision evaluable                0 pli(s) d'horizon 28 j
+                                          manque : 208 jour(s) d'enveloppe definie
+  [non] verdict de dose-reponse            exige 8 plis, 0 disponible(s)
+                                          manque : 224 jour(s) (8 pli(s))
+
+  En attendant son propre verdict :
+    Chez 4 athlete(s) sur 13 de la cohorte, la charge explique la performance avec un intervalle qui exclut zero ;
+    chez 9, non. Rien dans les donnees disponibles a l'inscription ne dit lequel vous etes.
+```
+
+Ce prior se lit dans `cohort_replication.parquet`, jamais recopié : un chiffre
+de population en dur devient faux dès que la cohorte grandit, et personne ne
+s'en aperçoit. Il n'est servi que tant que l'athlète n'a pas son propre
+verdict — le lui donner ensuite brouillerait ce qui le concerne.
+
+---
+
 ## Garde-fous du dépôt
 
 Ces règles sont appliquées par le code et par les tests, pas seulement

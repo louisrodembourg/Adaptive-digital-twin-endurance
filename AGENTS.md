@@ -106,6 +106,15 @@ applique — plancher rabaisse, stimulus abandonne, borne aigu/chronique
 inactive faute d'historique — et `xai_report` le publie. Une borne
 silencieusement inactive est pire qu'une borne absente.
 
+**Un seuil ne se recopie pas.** `readiness.py` annonce quand chaque capacite
+devient disponible — 28 jours pour la borne aigu/chronique, trois mesures pour
+l'enveloppe, huit plis pour le verdict. Chacun est celui qu'une fonction impose
+vraiment, et les comptages passent par ces fonctions (`horizon_splits`,
+`rolling_envelope`) plutot que de les reimplementer. Un seuil recopie derive le
+jour ou la fonction change, et l'echelle devient un mensonge rassurant : un
+test echoue si les deux divergent. Meme regle pour le prior de population, lu
+dans l'artefact de cohorte et jamais ecrit en dur.
+
 **Les tests n'ecrivent jamais dans `data/`.** Une fixture autouse le verifie
 apres chaque test et echoue sinon. Le module de sensibilite ne deroge pas :
 l'enveloppe perturbee n'existe qu'en memoire, et l'interface ne rend que des
@@ -128,7 +137,7 @@ src/layer_c_planner/     contraintes de securite, optimiseur, parsing LLM,
                          verdict de dose-reponse par athlete
 src/pipeline/            orchestrateur et provenance
 src/evaluation/          metriques, references, validation, rapport,
-                         modeles de fondation, sensibilite, cohorte
+                         modeles de fondation, sensibilite, cohorte, maturite
 app/                     tableau de bord Streamlit
 ```
 
