@@ -585,7 +585,8 @@ def build_parser() -> argparse.ArgumentParser:
     po = sub.add_parser("pool", help="ajuster le modele hierarchique sur la cohorte")
     po.add_argument("--draws", type=int, default=400, help="tirages conserves par chaine")
     po.add_argument("--tune", type=int, default=400, help="iterations d'adaptation")
-    po.add_argument("--chains", type=int, default=2, help="chaines (deux au minimum pour r_hat)")
+    po.add_argument("--chains", type=int, default=4,
+                    help="chaines ; quatre est le minimum recommande par PyMC")
     po.add_argument("--cores", type=int, default=1,
                     help="chaines en parallele ; 1 par defaut, le parallele plante sur ce graphe")
     po.add_argument("--stride", type=int, default=28,
@@ -743,21 +744,32 @@ def cmd_pool(args, cfg: Config) -> int:
     summary = summarise_pooling(trace, data)
     effects = per_athlete_effects(trace, data)
     divergences = int(trace.sample_stats.diverging.sum())
+    worst_rhat = float(summary["r_hat"].max())
 
     print(summary.to_string(index=False))
     print()
     print(effects.to_string(index=False))
-    print(f"\nDivergences : {divergences}")
+    print(f"\nDivergences : {divergences} | r_hat maximal : {worst_rhat:.3f}")
+
+    healthy = True
     if divergences:
         # Une divergence invalide la geometrie exploree : le dire, et ne pas
         # laisser lire le tableau comme un posterieur propre.
-        print("Posterieur a ne pas interpreter tel quel — relancer avec un "
-              "`target_accept` plus eleve.", file=sys.stderr)
+        print("Divergences : posterieur a ne pas interpreter tel quel — "
+              "relancer avec un `target_accept` plus eleve.", file=sys.stderr)
+        healthy = False
+    if worst_rhat > 1.01:
+        # Le seuil est celui que PyMC applique dans son propre avertissement.
+        # Un parametre non converge rend sa ligne du tableau illisible, et
+        # c'est precisement la ligne qu'on serait tente de citer.
+        print(f"r_hat = {worst_rhat:.3f} > 1.01 : au moins un parametre n'a pas "
+              "converge. Augmenter --chains ou --tune.", file=sys.stderr)
+        healthy = False
 
     summary.to_parquet(cfg.paths.processed / POOLING_FILE, index=False)
     effects.to_parquet(cfg.paths.processed / POOLING_EFFECTS_FILE, index=False)
     print(f"\nEcrit : {cfg.paths.processed / POOLING_FILE}")
-    return 0 if divergences == 0 else 1
+    return 0 if healthy else 1
 
 
 def main(argv: list[str] | None = None) -> int:
