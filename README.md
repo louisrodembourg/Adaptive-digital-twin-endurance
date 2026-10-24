@@ -83,7 +83,7 @@ Le résultat nul n'est donc pas annulé — il est circonscrit.
 
 ## Le fonctionnement
 
-Sept commandes, qui produisent tous les chiffres ci-dessus.
+Huit commandes, qui produisent tous les chiffres ci-dessus.
 
 ```bash
 python -m src.cli ingest         # 917 séances → charge, performance, provenance
@@ -92,6 +92,7 @@ python -m src.cli evaluate       # 5 protocoles + planchers de détectabilité
 python -m src.cli cohort         # réplication sur 61 athlètes
 python -m src.cli plan           # une semaine, et ce qu'elle ne promet pas
 python -m src.cli validate-plan  # ce que ses bornes valent face aux données
+python -m src.cli responders     # qui répond, testé hors échantillon
 python -m src.cli pool           # modèle hiérarchique sur la cohorte (~2 h 30)
 ```
 
@@ -216,6 +217,18 @@ physiologique : l'enveloppe étant un maximum glissant sur 42 jours, le modèle
 apprend probablement en partie la fenêtre de lissage. Identifiées n'est pas
 validé, et seule la première moitié était l'objectif.
 
+**Deux lignes de code auraient suffi à inventer un résultat.** En cherchant ce
+qui distingue un répondeur, le seul prédicteur que ma première exécution a
+déclaré significatif était `sexe_feminin` — qui vaut 0 chez les soixante-et-un
+athlètes du cache. Une colonne constante n'a pas de corrélation définie, et le
+p permuté d'un NaN ressort à 0,0000. Dans la même passe, six athlètes
+déclaraient une année de naissance postérieure à la publication du jeu de
+données, donc des âges de −58 à −42 ans, ce qui portait la corrélation de
+l'âge de +0,132 à +0,230 et en faisait la deuxième du tableau. Ni l'un ni
+l'autre n'aurait levé une erreur. Un prédicteur écarté est maintenant rapporté
+comme écarté : un tableau qui ne dit pas ce qu'il a retiré se lit comme si
+tout avait été testé.
+
 **Un résultat massif peut être entièrement un artefact.** En confrontant les
 bornes du planificateur aux données, mon premier protocole a répondu que
 respecter le plafond de charge aiguë **coûtait 0,333 σ de performance**, avec
@@ -241,14 +254,17 @@ gain — même modèle, autre paramétrisation — le ramène à **26 minutes**.
 
 ## Ce que je ferais ensuite
 
-**Savoir qui répond.** C'est la seule question ouverte qui changerait ce que
-le système *sait*. Elle était inattaquable à treize athlètes ; à soixante-et-un
-c'est une vraie régression à trois groupes — 23 répondeurs, 33 neutres, 5 chez
-qui la charge dégrade la prévision. Les prédicteurs candidats sont déjà dans
-les données : volume moyen, variabilité de charge, part vélo/course, densité de
-mesure. Le seul élément trouvé pour l'instant est la puissance de mesure
-elle-même (corrélation de rang +0,28 avec la longueur d'historique), et ce
-n'est pas une variable connue à l'inscription.
+**« Qui répond ? » est à moitié fermée, et la mauvaise moitié reste ouverte.**
+Posée hors échantillon — on retire un athlète et on demande aux soixante
+autres de dire s'il répond — la réponse est non : aucune famille de
+prédicteurs ne dépasse « prédire la classe majoritaire ». Pour ce qu'on sait
+le **premier jour**, le test est sensible (plancher 0,05 σ) et le nul tient :
+rien, avant la première séance, ne distingue un répondeur. Pour les
+prédicteurs **dérivés de l'historique**, le plancher n'est pas atteint même à
+0,40 σ — onze variables sur 61 sujets diluent tout. Celui-là n'est pas un
+résultat, c'est un manque de sujets. La voie n'est donc pas plus de
+prédicteurs, mais plus d'athlètes, ou un prédicteur postulé à l'avance plutôt
+que cherché parmi douze.
 
 **Les cinq cas négatifs sont instruits, et ils restent ouverts.** Aucun
 artefact établi — les trous de données, ruptures de niveau et ruptures

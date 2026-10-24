@@ -232,6 +232,14 @@ documentées. Le détail est dans [`AGENTS.md`](../AGENTS.md).
   statistique d'artefact comparée à sa distribution chez les 23 athlètes
   détectés. Sans groupe de comparaison, n'importe quelle valeur a l'air
   suspecte — quatre des cinq restent dans l'étendue des détectés.
+- **Un prédicteur cherché parmi douze se teste hors échantillon.**
+  `cli responders` retire un athlète et demande aux autres de le classer,
+  prétraitement recalculé dans chaque pli. Aucune famille ne dépasse la classe
+  majoritaire — et les deux nuls ne se valent pas : celui de ce qu'on sait au
+  premier jour est bien alimenté (plancher 0,05 σ), celui de l'historique ne
+  l'est pas (plancher non atteint à 0,40 σ). Un prédicteur **constant** est
+  écarté et rapporté comme écarté : le p permuté d'un NaN valait 0,0000, et ce
+  prédicteur dégénéré était le seul déclaré retenu de la première exécution.
 - **Les tests n'écrivent jamais dans `data/`** ; une fixture le vérifie après
   chaque test. Le module de sensibilité ne déroge pas : l'enveloppe perturbée
   n'existe qu'en mémoire et l'interface ne rend que des statistiques, jamais

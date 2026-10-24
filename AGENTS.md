@@ -111,6 +111,23 @@ specification, pas une decouverte : l'enveloppe etant un maximum glissant sur
 42 jours, le modele apprend vraisemblablement la fenetre de lissage. Le
 resserrement d'un posterieur ne vaut pas validation.
 
+**« Qui repond ? » se pose hors echantillon.** Chercher parmi douze
+predicteurs le plus correle au gain puis le publier, c'est tester douze
+hypotheses et n'en declarer qu'une. `cli responders` retire un athlete et
+demande aux autres de le classer, pretraitement recalcule DANS chaque pli — le
+calculer une fois sur tout l'echantillon ferait fuir la cible par le centrage.
+Resultat : aucune famille ne depasse la classe majoritaire. Les deux nuls ne se
+valent pas pour autant, et c'est le plancher qui les separe : la famille connue
+AU PREMIER JOUR detecte un decalage de 0,05 sigma, donc son nul est bien
+alimente et la question du demarrage a froid est FERMEE ; celle derivee de
+l'historique n'atteint pas son plancher a 0,40 sigma, donc son nul n'est pas
+etabli. Deux defauts sont sortis de cette mesure : un predicteur CONSTANT
+(`sexe_feminin`, nul chez les 61 athletes) ressortait significatif parce que le
+p permute d'un NaN vaut 0,0000, et six athletes declaraient un age NEGATIF qui
+portait la correlation de l'age de +0,132 a +0,230. Un predicteur ecarte est
+rapporte comme ecarte, et le prix de Bonferroni se paie sur les predicteurs
+reellement testes.
+
 **Un plan dit ce qu'il n'optimise pas.** Le planificateur cherche la charge
 MINIMALE qui delivre le stimulus demande, et non la maximale que les
 contraintes tolerent : sous une dose-reponse inconnue — elle existe chez
@@ -198,7 +215,8 @@ src/layer_c_planner/     contraintes de securite, optimiseur, parsing LLM,
 src/pipeline/            orchestrateur et provenance
 src/evaluation/          metriques, references, validation, rapport,
                          modeles de fondation, sensibilite, cohorte, maturite,
-                         confrontation des regles du plan aux donnees
+                         confrontation des regles du plan aux donnees,
+                         predicteurs de la reponse a la charge
 app/                     tableau de bord Streamlit
 ```
 
@@ -213,6 +231,7 @@ python -m src.cli cohort        # replication sur le cache d'athletes
 python -m src.cli fetch-athletes --critere velo|course   # elargir le cache
 python -m src.cli plan          # semaine proposee, et ce qu'elle ne promet pas
 python -m src.cli validate-plan # ce que les bornes du plan valent face aux donnees
+python -m src.cli responders    # qui repond, teste hors echantillon
 python -m src.cli pool          # ajustement hierarchique (lent : des dizaines de minutes)
 pytest                          # hors ligne par defaut
 

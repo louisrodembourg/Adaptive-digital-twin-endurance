@@ -59,6 +59,16 @@ from .evaluation.report import (
     paired_table,
     results_table,
 )
+from .evaluation.responders import (
+    AT_SIGNUP,
+    NEEDS_HISTORY,
+    athlete_features,
+    correlation_table,
+    format_correlations,
+    format_separations,
+    label_response,
+    loo_separation,
+)
 from .evaluation.sensitivity import (
     detectability_curve,
     format_detectability,
@@ -258,6 +268,8 @@ COHORT_FILE = "cohort_replication.parquet"
 POOLING_FILE = "pooling_summary.parquet"
 POOLING_EFFECTS_FILE = "pooling_effects.parquet"
 PLAN_RULES_FILE = "plan_rules.parquet"
+RESPONDERS_FILE = "responders_features.parquet"
+RESPONDERS_CORR_FILE = "responders_correlations.parquet"
 
 
 def _package_versions(models: tuple[str, ...]) -> dict[str, str]:
@@ -590,6 +602,12 @@ def build_parser() -> argparse.ArgumentParser:
     po.add_argument("--seed", type=int, default=0)
     po.set_defaults(func=cmd_pool)
 
+    rp = sub.add_parser("responders",
+                        help="qui repond, teste hors echantillon")
+    rp.add_argument("--permutations", type=int, default=20000,
+                    help="tirages du test de permutation des correlations")
+    rp.set_defaults(func=cmd_responders)
+
     vp = sub.add_parser("validate-plan",
                         help="confronter les bornes du planificateur aux donnees")
     vp.set_defaults(func=cmd_validate_plan)
@@ -806,6 +824,67 @@ def cmd_pool(args, cfg: Config) -> int:
     print(f"\nEcrit : {out}")
     return 0 if healthy else 1
 
+
+
+def cmd_responders(args, cfg: Config) -> int:
+    """
+    Qui repond ? Pose hors echantillon, et non par la meilleure correlation.
+
+    Chercher le predicteur le plus correle parmi douze puis le publier, c'est
+    tester douze hypotheses et n'en declarer qu'une. La question devient donc :
+    en retirant un athlete, les autres permettent-ils de dire s'il repond ?
+    """
+    cohorte_path = cfg.paths.processed / COHORT_FILE
+    if not cohorte_path.exists():
+        print(f"{COHORT_FILE} absent. Lancer `cli cohort`.", file=sys.stderr)
+        return 1
+    labels = label_response(pd.read_parquet(cohorte_path))
+    if labels.empty:
+        print("Aucun verdict de cohorte exploitable.", file=sys.stderr)
+        return 1
+
+    rows = []
+    for athlete in screen_cache(cfg.paths.cache / "opendata",
+                                CohortCriteria(min_folds=0)):
+        features = athlete_features(athlete, build_daily_load(athlete.sessions))
+        if features is not None:
+            rows.append(features)
+    if not rows:
+        print("Aucun athlete exploitable dans le cache.", file=sys.stderr)
+        return 1
+
+    table = pd.DataFrame(rows).merge(labels, on="uuid", how="inner")
+    if table.empty:
+        print("Aucun athlete commun au cache et a la cohorte.", file=sys.stderr)
+        return 1
+    compte = table["groupe"].value_counts().to_dict()
+    print(f"{len(table)} athlete(s) : {compte}\n")
+
+    print("=== Separation hors echantillon (un athlete retire a la fois) ===\n")
+    separations = [
+        loo_separation(table, AT_SIGNUP, "connu au premier jour"),
+        loo_separation(table, NEEDS_HISTORY, "derive de l'historique"),
+        loo_separation(table, AT_SIGNUP + NEEDS_HISTORY, "tout"),
+    ]
+    print(format_separations(separations))
+
+    print("\n\n=== Correlations de rang avec le gain, p permute ===\n")
+    correlations = correlation_table(table, AT_SIGNUP + NEEDS_HISTORY,
+                                     n_permutations=args.permutations)
+    print(format_correlations(correlations))
+
+    table.to_parquet(cfg.paths.processed / RESPONDERS_FILE, index=False)
+    if not correlations.empty:
+        correlations.to_parquet(cfg.paths.processed / RESPONDERS_CORR_FILE,
+                                index=False)
+    print(f"\nEcrit : {cfg.paths.processed / RESPONDERS_FILE}")
+
+    # Une separation hors echantillon changerait ce que le systeme peut dire
+    # au premier jour : elle merite d'etre annoncee, et son absence aussi.
+    if any(s.separates for s in separations):
+        print("\nUne famille de predicteurs separe les repondeurs — relire "
+              "`docs/resultats.md` avant d'en tirer parti.", file=sys.stderr)
+    return 0
 
 
 def cmd_validate_plan(args, cfg: Config) -> int:

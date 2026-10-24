@@ -85,6 +85,11 @@ class AthleteFrames:
     sessions: pd.DataFrame
     power: pd.DataFrame
     trimp_key: str
+    # Les deux seules variables connues le PREMIER JOUR. Elles ne servent a
+    # aucune mesure de charge, mais la question « qui repond ? » ne se pose
+    # utilement que sur ce qu'on sait avant d'avoir un historique.
+    gender: str | None = None
+    year_of_birth: int | None = None
 
     @property
     def span_days(self) -> int:
@@ -133,7 +138,9 @@ def summary_to_frames(summary: AthleteSummary) -> AthleteFrames | None:
     if not rows:
         return None
     return AthleteFrames(summary.uuid, pd.DataFrame(rows),
-                         pd.DataFrame(power, columns=["date", "pi"]), trimp_key)
+                         pd.DataFrame(power, columns=["date", "pi"]), trimp_key,
+                         gender=summary.gender,
+                         year_of_birth=summary.year_of_birth)
 
 
 def screen_cache(cache_dir: Path | str,

@@ -56,6 +56,8 @@ flowchart TB
         BASE --> VALID --> REPORT
         FND --> VALID
         RULES["plan_rules.py<br/><i>bornes du plan · 6768 semaines</i>"]
+        RESP["responders.py<br/><i>qui répond · hors échantillon</i>"]
+        COH --> RESP
         REPORT --> SENS
         REPORT --> COH
     end
@@ -84,7 +86,7 @@ flowchart TB
 
     classDef result fill:#16324f,stroke:#4c8bf5,stroke-width:2px,color:#fff
     classDef guard fill:#4a3620,stroke:#e0a355,stroke-width:2px,color:#fff
-    class REPORT,BAYES,FND,SENS,COH,HIER,RULES result
+    class REPORT,BAYES,FND,SENS,COH,HIER,RULES,RESP result
     class PROV,TB guard
 ```
 
@@ -103,6 +105,7 @@ python -m src.cli evaluate                  # cinq protocoles + planchers
 python -m src.cli cohort                    # répliquer sur le cache d'athlètes
 python -m src.cli plan                      # proposer une semaine, et ce qu'elle vaut
 python -m src.cli validate-plan             # confronter ses bornes aux données
+python -m src.cli responders                # qui répond, hors échantillon
 python -m src.cli pool                      # mise en commun hiérarchique (~2 h 30)
 
 streamlit run app/main_dashboard.py

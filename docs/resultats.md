@@ -1042,3 +1042,94 @@ des bras tirés au sort. Et le plancher de retention du planificateur porte sur
 80 % de la charge d'une semaine de référence, quantité qui n'existe pas dans un
 historique observé ; `ACWR ≥ 0,8` en est l'analogue le plus proche, et c'est
 une approximation déclarée, pas la règle elle-même.
+
+---
+
+## Qui répond ? La question ouverte, posée hors échantillon
+
+L'effet de charge existe chez 23 athlètes sur 61, est indétectable chez 33 et
+dégrade la prévision chez 5. C'est le résultat le plus utile du dépôt et le
+plus inexploitable : savoir qu'un athlète sur trois répond ne dit pas **lequel**,
+et un planificateur a besoin du second.
+
+### Pourquoi la meilleure corrélation n'est pas une réponse
+
+Chercher parmi douze prédicteurs celui dont la corrélation avec le gain est la
+plus forte, puis le publier, c'est tester douze hypothèses et n'en déclarer
+qu'une. Le dépôt exige du hors échantillon partout ailleurs. La question
+devient donc : **en retirant un athlète, les soixante autres permettent-ils de
+dire s'il répond ?**
+
+`python -m src.cli responders` — centroïde par classe sur prédicteurs
+centrés-réduits, un athlète retiré à la fois, **le centrage et les centroïdes
+recalculés dans chaque pli**. Les calculer une fois sur tout l'échantillon
+ferait fuir la cible par le prétraitement, ce qui est la façon la plus discrète
+de fabriquer une performance hors échantillon.
+
+| famille de prédicteurs | prédicteurs | athlètes | exactitude | classe majoritaire | p | plancher |
+|---|---:|---:|---:|---:|---:|---:|
+| connu au premier jour | 2 | 55 | 52,7 % | 60,0 % | 0,892 | **0,05 σ** |
+| dérivé de l'historique | 11 | 61 | 55,7 % | 62,3 % | 0,882 | non atteint |
+| tout | 13 | 55 | 47,3 % | 60,0 % | 0,980 | 0,05 σ |
+
+**Rien ne sépare les répondeurs.** Les trois familles font moins bien que
+« prédire systématiquement la classe majoritaire ». La famille complète fait
+même nettement moins bien que celle à deux prédicteurs — signature classique de
+trop de variables pour trop peu de sujets.
+
+### Les deux nuls ne se valent pas
+
+C'est l'intérêt du plancher. Pour la famille **connue au premier jour**, un
+décalage de 0,05 écart-type des prédicteurs des répondeurs suffit à être
+détecté : le test est sensible, et son nul est **bien alimenté**. Rien de ce
+qu'on sait d'un athlète avant sa première séance ne le distingue — c'est une
+vraie réponse à la question ouverte du projet, et elle est négative.
+
+Pour la famille **dérivée de l'historique**, le plancher n'est pas atteint même
+à 0,40 écart-type : onze prédicteurs sur 61 sujets diluent le signal dans la
+distance euclidienne. « L'historique ne prédit pas la réponse » n'est donc
+**pas établi** — ce test ne saurait pas le voir.
+
+### Les corrélations, avec le seuil que l'échantillon sait distinguer
+
+| prédicteur | ρ | p permuté | ρ détectable |
+|---|---:|---:|---:|
+| `jours` (étendue d'historique) | **+0,236** | 0,064 | 0,250 |
+| `n_observations` | +0,179 | 0,166 | 0,252 |
+| `age` | +0,132 | 0,333 | 0,265 |
+| `jours_actifs_pct` | +0,113 | 0,385 | 0,249 |
+| `cv_charge_hebdo_pct` | −0,165 | 0,205 | 0,252 |
+| `pente_charge_an` | −0,129 | 0,322 | 0,252 |
+
+Aucun ne franchit son propre seuil, et le seuil de Bonferroni pour douze
+prédicteurs testés est à **p < 0,0042**. L'étendue d'historique reste le
+meilleur candidat — et ce n'est pas une variable connue à l'inscription, donc
+même vraie elle ne résoudrait pas le démarrage à froid.
+
+### Deux défauts que le résultat a révélés
+
+**Un prédicteur constant ressortait « significatif ».** `sexe_feminin` vaut 0
+chez les soixante-et-un athlètes du cache : le jeu de données GoldenCheetah
+OpenData, tel que ce cache l'a échantillonné, ne contient que des hommes. Une
+colonne constante n'a pas de corrélation **définie**, le p permuté d'un NaN
+ressortait à 0,0000, et ce prédicteur dégénéré était **le seul déclaré retenu
+de la première exécution**. Il est maintenant écarté — et rapporté comme
+écarté, parce qu'un tableau qui ne dit pas ce qu'il a retiré se lit comme si
+tout avait été testé.
+
+**Six athlètes avaient un âge négatif.** Ils déclarent une année de naissance
+postérieure à la publication du jeu de données, d'où des âges de **−58 à
+−42 ans**. Leur présence portait la corrélation de l'âge à **+0,230**, la
+deuxième du tableau ; une fois écartés, elle tombe à **+0,132**. Une borne de
+plausibilité explicite les retire désormais, et le compte des athlètes passe de
+61 à 55 sur les familles qui utilisent l'âge — ce que le tableau affiche.
+
+### Ce qui reste ouvert, et ce qui ne l'est plus
+
+**Fermé :** rien de ce qu'on sait d'un athlète le premier jour ne permet de
+prévoir s'il répondra à la charge. Le test est sensible et le nul tient.
+
+**Ouvert :** l'historique pourrait prédire sans que ces 61 athlètes puissent le
+montrer. La voie n'est pas plus de prédicteurs — elle en a déjà trop pour
+l'échantillon — mais plus de sujets, ou un prédicteur postulé à l'avance plutôt
+que cherché parmi douze.

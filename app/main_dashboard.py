@@ -38,6 +38,7 @@ from src.cli import (
     PLAN_RULES_FILE,
     POOLING_EFFECTS_FILE,
     POOLING_FILE,
+    RESPONDERS_CORR_FILE,
     RESULTS_FILE,
 )
 from src.config import ConfigError, load_config
@@ -97,7 +98,7 @@ def load_measurements() -> dict[str, pd.DataFrame | None]:
         "durees": DURATIONS_FILE, "planchers": FLOORS_FILE,
         "paires_durees": DURATION_PAIRS_FILE,
         "cohorte": COHORT_FILE, "pooling": POOLING_FILE,
-        "regles": PLAN_RULES_FILE,
+        "regles": PLAN_RULES_FILE, "repondeurs": RESPONDERS_CORR_FILE,
         "effets": POOLING_EFFECTS_FILE,
     }
     out: dict[str, pd.DataFrame | None] = {}
@@ -461,9 +462,9 @@ elif page == "Mesures":
     )
     m = load_measurements()
     (t_mat, t_disc, t_duree, t_plancher, t_cohorte, t_pool,
-     t_regles) = st.tabs(
+     t_regles, t_qui) = st.tabs(
         ["Maturite", "Appariement", "Par duree", "Plancher", "Cohorte",
-         "Mise en commun", "Regles du plan"])
+         "Mise en commun", "Regles du plan", "Qui repond"])
 
     # -- maturite ---------------------------------------------------------
     with t_mat:
@@ -643,6 +644,51 @@ elif page == "Mesures":
                 "l'enveloppe reelle, puis le protocole est repasse inchange. "
                 "Le plancher est optimiste : le signal injecte a exactement la "
                 "forme que le modele ajuste."
+            )
+
+    # -- qui repond -------------------------------------------------------
+    with t_qui:
+        st.subheader("Qu'est-ce qui distingue un repondeur ?")
+        qui = m.get("repondeurs")
+        if qui is None:
+            _missing("Predicteurs de la reponse", "python -m src.cli responders")
+        else:
+            testes = qui[qui["ecarte"].isna()] if "ecarte" in qui else qui
+            fig = go.Figure()
+            fig.add_trace(go.Bar(y=testes["predicteur"], x=testes["rho"],
+                                 orientation="h", marker_color=ACCENT,
+                                 name="correlation de rang"))
+            # Le rho que l'echantillon saurait distinguer du hasard, de part et
+            # d'autre : sans ces deux bornes, un rho de 0,24 se lit comme un
+            # resultat alors qu'il est sous le seuil.
+            for signe in (1, -1):
+                fig.add_trace(go.Scatter(
+                    y=testes["predicteur"], x=signe * testes["rho_detectable"],
+                    mode="markers", marker={"symbol": "line-ns-open",
+                                            "size": 14, "color": MUTED},
+                    name="seuil detectable" if signe == 1 else None,
+                    showlegend=signe == 1))
+            fig.add_vline(x=0, line_color="#555")
+            fig.update_xaxes(title="correlation de rang avec le gain de charge")
+            st.plotly_chart(_layout(fig, "", 40 * len(testes) + 120),
+                            width="stretch")
+            st.dataframe(
+                testes[["predicteur", "n", "rho", "p", "rho_detectable",
+                        "significatif"]].rename(columns={
+                    "rho_detectable": "rho detectable"}).style.format({
+                        "rho": "{:+.3f}", "p": "{:.4f}",
+                        "rho detectable": "{:.3f}"}),
+                width="stretch", hide_index=True)
+            if "ecarte" in qui:
+                for _, ligne in qui[qui["ecarte"].notna()].iterrows():
+                    st.caption(f":grey[{ligne['predicteur']} ecarte — "
+                               f"{ligne['ecarte']}.]")
+            st.caption(
+                "Aucun predicteur ne franchit son seuil, et aucune famille ne "
+                "separe les repondeurs hors echantillon. La correlation la "
+                "plus forte reste la longueur d'historique — qui n'est pas une "
+                "variable connue a l'inscription, donc ne resout pas le "
+                "demarrage a froid."
             )
 
     # -- regles du planificateur ------------------------------------------
