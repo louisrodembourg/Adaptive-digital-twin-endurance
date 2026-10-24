@@ -8,9 +8,13 @@ quatre-vingt-quatre seances generees sous l'etiquette `source="fit_file"` :
 tous les graphiques affiches etaient synthetiques, sans que rien ne
 l'indique. Un magasin vide affiche desormais la commande a lancer.
 
-Quatre pages. La derniere, Diagnostics, est celle qui porte le resultat du
-projet : elle publie les scores hors echantillon de chaque variante, y
-compris quand le modele perd contre la persistance.
+Cinq pages. Diagnostics publie les scores hors echantillon de chaque variante,
+y compris quand le modele perd contre la persistance. Mesures lit les
+artefacts deja produits par `cli evaluate`, `cohort` et `pool` plutot que de
+recalculer : ces protocoles coutent des minutes a des dizaines de minutes, et
+un tableau de bord qui les relance a chaque clic finit par ne plus etre
+ouvert. Une section dont l'artefact manque affiche la commande qui le produit,
+et non un graphique vide.
 """
 
 from __future__ import annotations
@@ -25,8 +29,19 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from src.cli import (
+    ABLATION_FILE,
+    COHORT_FILE,
+    DURATIONS_FILE,
+    FLOORS_FILE,
+    POOLING_EFFECTS_FILE,
+    POOLING_FILE,
+    RESULTS_FILE,
+)
 from src.config import ConfigError, load_config
-from src.evaluation.report import evaluate
+from src.evaluation.cohort import detection_contrast
+from src.evaluation.readiness import assess_readiness
+from src.evaluation.report import BIKE_SPORTS, BIKE_TARGET_COLUMN, evaluate
 from src.layer_a_signal.envelope import (
     EnvelopeSpec,
     describe_predictability,
@@ -60,6 +75,41 @@ def load_store() -> dict[str, pd.DataFrame | dict | None]:
         "observations": load_perf_observations(),
         "calibration": load_calibration(),
     }
+
+
+@st.cache_data(ttl=300)
+def load_measurements() -> dict[str, pd.DataFrame | None]:
+    """
+    Les artefacts de mesure, ou None quand ils n'ont pas ete produits.
+
+    On ne recalcule rien ici : `cli evaluate` prend des minutes, `cli pool`
+    des dizaines. Un artefact absent est une information — la commande n'a
+    pas tourne — et doit s'afficher comme telle.
+    """
+    try:
+        processed = load_config().paths.processed
+    except ConfigError:
+        return {}
+    names = {
+        "resultats": RESULTS_FILE, "ablation": ABLATION_FILE,
+        "durees": DURATIONS_FILE, "planchers": FLOORS_FILE,
+        "cohorte": COHORT_FILE, "pooling": POOLING_FILE,
+        "effets": POOLING_EFFECTS_FILE,
+    }
+    out: dict[str, pd.DataFrame | None] = {}
+    for key, filename in names.items():
+        path = processed / filename
+        try:
+            out[key] = pd.read_parquet(path) if path.exists() else None
+        except Exception:
+            out[key] = None
+    return out
+
+
+def _missing(label: str, command: str) -> None:
+    """Dit quelle commande produit l'artefact manquant."""
+    st.info(f"{label} — artefact absent.")
+    st.code(command, language="bash")
 
 
 def empty_state() -> None:
@@ -110,7 +160,7 @@ with st.sidebar:
     st.divider()
     page = st.radio(
         "Page",
-        ["Charge", "Performance", "Seances", "Diagnostics"],
+        ["Charge", "Performance", "Seances", "Diagnostics", "Mesures"],
         label_visibility="collapsed",
     )
     st.divider()
@@ -380,4 +430,239 @@ elif page == "Diagnostics":
                 "des extrapolations de la courbe de reference, ajustee sur des "
                 "efforts de cinq a quarante-cinq minutes. Aucun semi-marathon ne "
                 "figure dans les donnees de cet athlete."
+            )
+
+# ── page Mesures ──────────────────────────────────────────────────────────
+
+elif page == "Mesures":
+    st.header("Ce que la mesure a etabli")
+    st.caption(
+        "Lit les artefacts deja produits, sans rien recalculer. Un intervalle "
+        "qui contient zero se lit comme une absence de preuve, pas comme une "
+        "preuve d'absence — et les deux sont distingues ici."
+    )
+    m = load_measurements()
+    t_mat, t_disc, t_duree, t_plancher, t_cohorte, t_pool = st.tabs(
+        ["Maturite", "Appariement", "Par duree", "Plancher", "Cohorte",
+         "Mise en commun"])
+
+    # -- maturite ---------------------------------------------------------
+    with t_mat:
+        st.subheader("Ce que le systeme peut affirmer aujourd'hui")
+        lowered = sessions["sport"].astype(str).str.lower()
+        bike = sessions[lowered.str.startswith(BIKE_SPORTS)]
+        power = (bike[["date", BIKE_TARGET_COLUMN]].dropna()
+                 .rename(columns={BIKE_TARGET_COLUMN: "pi"})
+                 if BIKE_TARGET_COLUMN in sessions.columns else pd.DataFrame())
+        readiness = assess_readiness(daily, power, cohort=m.get("cohorte"))
+
+        done = len(readiness.available)
+        total = len(readiness.capabilities)
+        st.metric("Capacites disponibles", f"{done} / {total}")
+        st.progress(done / total if total else 0.0)
+        for capability in readiness.capabilities:
+            if capability.available:
+                st.markdown(f"**oui** — {capability.name} · {capability.detail}")
+            else:
+                st.markdown(
+                    f":grey[**non** — {capability.name} · {capability.detail}]"
+                    + (f"  \n:orange[manque : {capability.missing}]"
+                       if capability.missing else "")
+                )
+        if readiness.prior and not readiness.capability(
+                "verdict de dose-reponse").available:
+            st.info(readiness.prior)
+        st.caption(
+            "Le verdict de dose-reponse demande 180 jours de contexte puis huit "
+            "plis de 28 jours. Avant cela le systeme ne dit rien de cet athlete, "
+            "et le dire vaut mieux que se taire."
+        )
+
+    # -- appariement par discipline ---------------------------------------
+    with t_disc:
+        st.subheader("Apparier la charge a la discipline de la cible")
+        resultats, ablation = m.get("resultats"), m.get("ablation")
+        if resultats is None:
+            _missing("Resultats d'evaluation", "python -m src.cli evaluate")
+        else:
+            protocoles = list(dict.fromkeys(resultats["protocol"]))
+            choisi = st.selectbox("Protocole", protocoles,
+                                  index=len(protocoles) - 1)
+            vue = resultats[resultats["protocol"] == choisi]
+            fig = go.Figure()
+            fig.add_trace(go.Bar(x=vue["name"], y=vue["r2_in"],
+                                 name="ajustement", marker_color=MUTED))
+            fig.add_trace(go.Bar(x=vue["name"], y=vue["r2_out"],
+                                 name="hors echantillon", marker_color=ACCENT))
+            fig.add_hline(y=0, line_color="#555")
+            fig.update_layout(barmode="group", xaxis_tickangle=-30)
+            st.plotly_chart(_layout(fig, "R²", 420), width="stretch")
+            st.dataframe(
+                vue[["name", "r2_in", "r2_out", "gap", "folds"]].rename(columns={
+                    "name": "variante", "r2_in": "R² ajustement",
+                    "r2_out": "R² hors echantillon", "gap": "ecart",
+                    "folds": "plis"}).style.format({
+                        "R² ajustement": "{:+.4f}",
+                        "R² hors echantillon": "{:+.4f}", "ecart": "{:+.4f}"}),
+                width="stretch", hide_index=True)
+            st.caption(
+                "La colonne plis compte les decoupages effectivement couverts : "
+                "un modele dont la tete est entrainee sur un horizon court "
+                "echoue sur les plis longs, et sa ligne porte alors sur moins "
+                "de points que les autres."
+            )
+        if ablation is not None and not ablation.empty:
+            st.markdown("**Comparaisons appariees** — c'est l'intervalle qui decide.")
+            st.dataframe(
+                ablation[["variante", "reference", "skill", "ci_low", "ci_high",
+                          "p_a_better"]].rename(columns={
+                    "skill": "gain", "ci_low": "IC bas", "ci_high": "IC haut",
+                    "p_a_better": "P(gain)"}).style.format({
+                        "gain": "{:+.4f}", "IC bas": "{:+.4f}",
+                        "IC haut": "{:+.4f}", "P(gain)": "{:.3f}"}),
+                width="stretch", hide_index=True)
+
+    # -- par duree d'effort -----------------------------------------------
+    with t_duree:
+        st.subheader("Une enveloppe par duree d'effort")
+        durees = m.get("durees")
+        if durees is None:
+            _missing("Protocole par duree", "python -m src.cli evaluate")
+        else:
+            gardees = durees[durees["variante"] != "ecartee"]
+            if gardees.empty:
+                st.warning("Aucune duree retenue.")
+            else:
+                fig = go.Figure()
+                for variante in dict.fromkeys(gardees["variante"]):
+                    serie = gardees[gardees["variante"] == variante]
+                    fig.add_trace(go.Scatter(
+                        x=serie["duration_s"], y=serie["r2_out"], name=variante,
+                        mode="lines+markers"))
+                fig.add_hline(y=0, line_color="#555")
+                fig.update_xaxes(title="duree de l'effort (s)")
+                st.plotly_chart(_layout(fig, "R² hors echantillon", 400),
+                                width="stretch")
+                st.caption(
+                    "La persistance s'effondre quand l'effort s'allonge, et "
+                    "c'est le seul endroit ou l'ecart avec le modele de charge "
+                    "cesse d'exclure zero — non parce que la charge progresse, "
+                    "mais parce que la reference faiblit."
+                )
+            ecartees = durees[durees["variante"] == "ecartee"]
+            for _, ligne in ecartees.iterrows():
+                st.caption(
+                    f":grey[{int(ligne['duration_s'])} s ecartee — "
+                    f"{int(ligne['n_obs'])} observations, trop peu pour un R².]")
+
+    # -- plancher de detectabilite ----------------------------------------
+    with t_plancher:
+        st.subheader("Quel effet ce protocole saurait voir")
+        planchers = m.get("planchers")
+        if planchers is None:
+            _missing("Plancher de detectabilite", "python -m src.cli evaluate")
+        else:
+            fig = go.Figure()
+            for reference in dict.fromkeys(planchers["reference"]):
+                serie = planchers[planchers["reference"] == reference]
+                fig.add_trace(go.Scatter(x=serie["delta"], y=serie["skill"],
+                                         name=f"contre {reference}",
+                                         mode="lines+markers"))
+            fig.add_hline(y=0, line_color="#555")
+            fig.update_xaxes(title="effet injecte (ecarts-types d'enveloppe)")
+            st.plotly_chart(_layout(fig, "gain apparie", 380), width="stretch")
+            vus = planchers[planchers["detecte"]]
+            for reference in dict.fromkeys(planchers["reference"]):
+                atteint = vus[vus["reference"] == reference]["delta"]
+                if atteint.empty:
+                    st.markdown(f"Contre **{reference}** : aucun plancher atteint.")
+                elif float(atteint.min()) == 0.0:
+                    st.markdown(f"Contre **{reference}** : effet deja detecte "
+                                "**sans injection** — la charge reelle suffit.")
+                else:
+                    st.markdown(f"Contre **{reference}** : plancher a "
+                                f"**{float(atteint.min()):.2f} ecart-type**.")
+            st.caption(
+                "Un effet SYNTHETIQUE d'amplitude connue est ajoute a "
+                "l'enveloppe reelle, puis le protocole est repasse inchange. "
+                "Le plancher est optimiste : le signal injecte a exactement la "
+                "forme que le modele ajuste."
+            )
+
+    # -- cohorte ----------------------------------------------------------
+    with t_cohorte:
+        st.subheader("Un resultat sur un athlete est une anecdote")
+        cohorte = m.get("cohorte")
+        if cohorte is None:
+            _missing("Replication sur la cohorte", "python -m src.cli cohort")
+        else:
+            contre_moyenne = cohorte[cohorte["reference"] == "moyenne"].copy()
+            contre_moyenne = contre_moyenne.sort_values("skill")
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=contre_moyenne["skill"],
+                y=contre_moyenne["uuid"].str.slice(0, 8),
+                error_x={"type": "data", "symmetric": False,
+                         "array": contre_moyenne["ci_high"] - contre_moyenne["skill"],
+                         "arrayminus": contre_moyenne["skill"] - contre_moyenne["ci_low"]},
+                mode="markers", marker={"color": ACCENT, "size": 9},
+                name="gain contre la moyenne"))
+            fig.add_vline(x=0, line_color="#555")
+            fig.update_xaxes(title="gain apparie, IC 95 %")
+            st.plotly_chart(_layout(fig, "", 420), width="stretch")
+
+            detectes = int((contre_moyenne["ci_low"] > 0).sum())
+            contre = int((contre_moyenne["ci_high"] < 0).sum())
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Athletes", len(contre_moyenne))
+            c2.metric("IC excluant zero, en faveur", detectes)
+            c3.metric("IC excluant zero, contre", contre)
+
+            contraste = detection_contrast(cohorte)
+            if not contraste.empty:
+                st.markdown("**Heterogeneite reelle, ou defaut de mesure ?**")
+                st.dataframe(contraste.style.format({
+                    "gain_median": "{:+.4f}", "largeur_ic_median": "{:.3f}",
+                    "puissances_median": "{:.0f}", "plis_median": "{:.0f}"}),
+                    width="stretch", hide_index=True)
+                st.caption(
+                    "Si l'effet etait universel mais noye, les estimations "
+                    "ponctuelles des non detectes resteraient positives. "
+                    "Centrees sur zero, elles disent que l'effet n'existe que "
+                    "chez certains."
+                )
+
+    # -- mise en commun ---------------------------------------------------
+    with t_pool:
+        st.subheader("Mise en commun hierarchique des athletes")
+        pooling, effets = m.get("pooling"), m.get("effets")
+        if pooling is None:
+            _missing("Ajustement hierarchique",
+                     "python -m src.cli pool      # des dizaines de minutes")
+        else:
+            st.dataframe(pooling, width="stretch", hide_index=True)
+            st.caption(
+                "Les constantes de temps sont PARTAGEES : c'est le partage qui "
+                "les rend identifiables, la ou un athlete seul ne resserre son "
+                "prior que de 41 %."
+            )
+        if effets is not None and not effets.empty:
+            ordonne = effets.sort_values("k_net_moyen")
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=ordonne["k_net_moyen"], y=ordonne["athlete"],
+                error_x={"type": "data", "symmetric": False,
+                         "array": ordonne["hdi_haut"] - ordonne["k_net_moyen"],
+                         "arrayminus": ordonne["k_net_moyen"] - ordonne["hdi_bas"]},
+                mode="markers", marker={"color": ACCENT, "size": 9},
+                name="effet net"))
+            fig.add_vline(x=0, line_color="#555")
+            fig.update_xaxes(title="effet net, HDI 94 %")
+            st.plotly_chart(_layout(fig, "", 420), width="stretch")
+            st.warning(
+                "Cet ajustement est DANS l'echantillon. Le meme modele, sur les "
+                "memes athletes, explique le passe chez presque tous et n'en "
+                "prevoit la suite que chez un tiers : c'est la signature du "
+                "surapprentissage, et c'est pourquoi l'onglet Cohorte compte "
+                "davantage que celui-ci."
             )

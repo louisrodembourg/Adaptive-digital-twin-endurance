@@ -62,6 +62,7 @@ from .evaluation.validation import horizon_splits
 from .ingestion.opendata import (
     OpenDataClient,
     ScreeningCriteria,
+    read_summary,
     screen_athletes,
 )
 from .layer_a_signal.envelope import EnvelopeSpec, rolling_envelope
@@ -593,6 +594,18 @@ def build_parser() -> argparse.ArgumentParser:
                     help="un point d'enveloppe tous les N jours")
     po.add_argument("--seed", type=int, default=0)
     po.set_defaults(func=cmd_pool)
+
+    fa = sub.add_parser("fetch-athletes",
+                        help="telecharger des archives pour elargir la cohorte")
+    fa.add_argument("--n", type=int, default=300,
+                    help="candidats a examiner dans le listing OSF")
+    fa.add_argument("--max-new", type=int, default=80,
+                    help="plafond de telechargements effectifs")
+    fa.add_argument("--max-size", type=float, default=60.0,
+                    help="taille maximale d'une archive, en Mo")
+    fa.add_argument("--min-observations", type=int, default=60,
+                    help="observations de puissance exigees pour etre eligible")
+    fa.set_defaults(func=cmd_fetch_athletes)
     return p
 
 
@@ -770,6 +783,63 @@ def cmd_pool(args, cfg: Config) -> int:
     effects.to_parquet(cfg.paths.processed / POOLING_EFFECTS_FILE, index=False)
     print(f"\nEcrit : {cfg.paths.processed / POOLING_FILE}")
     return 0 if healthy else 1
+
+
+
+def cmd_fetch_athletes(args, cfg: Config) -> int:
+    """
+    Telecharge des archives et dit lesquelles peuvent porter la cohorte.
+
+    Le criblage historique (`cli screen-athletes`) exige 150 COURSES : il a
+    servi a choisir le sujet de demonstration, dont la cible est une vitesse
+    en course a pied. La cohorte tourne sur la puissance velo, donc sur un
+    autre critere — d'ou cette commande, qui juge chaque archive sur ce que le
+    modele hierarchique lui demande vraiment.
+
+    Reprenable : `fetch_athlete` saute ce qui est deja en cache avec le bon
+    md5, donc relancer la commande ne retelecharge rien.
+    """
+    from .evaluation.cohort import CohortCriteria, summary_to_frames
+
+    client = OpenDataClient(cache_dir=cfg.paths.cache, node=cfg.data_source.osf_node)
+    criteria = CohortCriteria(min_power_observations=args.min_observations)
+    cached_before = len(list(client.cache_dir.glob("*.zip")))
+    print(f"{cached_before} archive(s) deja en cache. Examen de {args.n} "
+          f"candidat(s), au plus {args.max_new} telechargement(s).\n")
+
+    downloaded = eligible = examined = 0
+    for remote in client.list_athletes(limit=args.n):
+        if remote.size_mb > args.max_size:
+            continue
+        was_cached = client.cached_path(remote.uuid).exists()
+        if not was_cached and downloaded >= args.max_new:
+            break
+        try:
+            path = client.fetch_athlete(remote)
+            frames = summary_to_frames(read_summary(path))
+        except Exception as exc:
+            # Une archive illisible est tracee et sautee : ne pas laisser un
+            # fichier bancal interrompre une passe de plusieurs centaines.
+            print(f"  {remote.uuid[:8]} ignore : {exc}", file=sys.stderr)
+            continue
+
+        examined += 1
+        downloaded += 0 if was_cached else 1
+        if frames is None:
+            continue
+        keeps = (len(frames.power) >= criteria.min_power_observations
+                 and frames.span_days >= criteria.min_span_days)
+        if keeps:
+            eligible += 1
+            print(f"  RETENU  {remote.uuid[:8]}  {len(frames.power):4d} puissances, "
+                  f"{frames.span_days:5d} jours", flush=True)
+
+    cached_after = len(list(client.cache_dir.glob("*.zip")))
+    print(f"\n{examined} archive(s) examinee(s), {downloaded} telechargee(s), "
+          f"{eligible} eligible(s) a la cohorte.")
+    print(f"Cache : {cached_before} -> {cached_after} archives.")
+    print("\nRelancer `cli cohort` puis `cli pool` pour en tirer parti.")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:

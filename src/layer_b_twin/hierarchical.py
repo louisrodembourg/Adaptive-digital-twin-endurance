@@ -281,6 +281,20 @@ def per_athlete_effects(trace, data: CohortData) -> pd.DataFrame:
     import arviz as az
 
     posterior = trace.posterior["k_net"]
+
+    # La trace et la cohorte peuvent avoir divergé : le cache grandit des
+    # qu'on telecharge des archives, et rejouer l'analyse sur une trace plus
+    # ancienne donnait un KeyError d'xarray illisible. Le dire, et nommer le
+    # coupable.
+    sampled = set(map(str, posterior.coords["athlete"].values))
+    unknown = [u for u in data.uuids if u not in sampled]
+    if unknown:
+        raise ValueError(
+            f"{len(unknown)} athlete(s) de la cohorte absent(s) de la trace "
+            f"(dont {unknown[0][:8]}). La cohorte a change depuis "
+            "l'echantillonnage — relancer `cli pool`."
+        )
+
     rows = []
     for uuid in data.uuids:
         draws = posterior.sel(athlete=uuid).values.ravel()

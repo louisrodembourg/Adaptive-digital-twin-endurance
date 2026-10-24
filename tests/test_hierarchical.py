@@ -235,3 +235,46 @@ def test_the_model_carries_its_data_for_later_diagnostics(model):
 
 def test_the_inclusion_threshold_is_declared():
     assert MIN_POINTS >= 3
+
+
+def test_a_trace_that_predates_the_cohort_says_so():
+    """
+    Le cache grandit des qu'on telecharge des archives. Rejouer une analyse
+    sur une trace plus ancienne donnait un `KeyError` d'xarray illisible ;
+    il faut nommer la cause et la commande qui la corrige.
+    """
+    pytest.importorskip("arviz")
+    import xarray as xr
+
+    from src.layer_b_twin.hierarchical import per_athlete_effects
+
+    # Une trace qui ne connait que deux athletes.
+    k_net = xr.DataArray(
+        np.zeros((1, 10, 2)),
+        dims=("chain", "draw", "athlete"),
+        coords={"chain": [0], "draw": range(10), "athlete": ["aaa", "bbb"]},
+    )
+    trace = type("Trace", (), {"posterior": xr.Dataset({"k_net": k_net})})()
+
+    # Une cohorte qui en compte trois.
+    data = CohortData((_block("aaa"), _block("bbb"), _block("ccc")))
+    with pytest.raises(ValueError, match="cli pool"):
+        per_athlete_effects(trace, data)
+
+
+def test_a_matching_trace_is_read_without_complaint():
+    pytest.importorskip("arviz")
+    import xarray as xr
+
+    from src.layer_b_twin.hierarchical import per_athlete_effects
+
+    k_net = xr.DataArray(
+        np.full((2, 50, 2), 0.4),
+        dims=("chain", "draw", "athlete"),
+        coords={"chain": [0, 1], "draw": range(50), "athlete": ["aaa", "bbb"]},
+    )
+    trace = type("Trace", (), {"posterior": xr.Dataset({"k_net": k_net})})()
+    data = CohortData((_block("aaa"), _block("bbb")))
+    effects = per_athlete_effects(trace, data)
+    assert list(effects["athlete"]) == ["aaa", "bbb"]
+    assert effects["k_net_moyen"].iloc[0] == pytest.approx(0.4)
