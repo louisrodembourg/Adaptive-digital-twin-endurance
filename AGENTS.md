@@ -92,7 +92,7 @@ persistance, elle, se replique a p = 0,003.
 **Un plan dit ce qu'il n'optimise pas.** Le planificateur cherche la charge
 MINIMALE qui delivre le stimulus demande, et non la maximale que les
 contraintes tolerent : sous une dose-reponse inconnue — elle existe chez
-quatre athletes sur treize — le cout d'une charge inutile est reel la ou son
+23 athletes sur 61, et nuisible chez 5 — le cout d'une charge inutile est reel la ou son
 benefice ne l'est pas. `dose_response.py` mesure le verdict chez l'athlete
 qu'on a en face et distingue « non detectee » d'« indeterminable », parce que
 presenter une absence de mesure comme une absence d'effet est l'erreur que ce

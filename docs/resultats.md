@@ -466,107 +466,84 @@ python -m src.cli evaluate       # les cinq protocoles et les quatre planchers
 
 ---
 
-## Ce que treize autres athlètes en disent
+## Ce que soixante-et-un athlètes en disent
 
-Le résultat ci-dessus tient sur **un athlète et 38 plis**. C'est une anecdote
-tant qu'il n'a pas été confronté à d'autres, et le cache OpenData en contient
-62. Quinze passent les critères — assez d'observations de puissance, assez
-d'historique pour un protocole à horizon — et treize produisent assez de plis
-pour compter.
+Le résultat de l'athlète de référence tenait sur 38 plis chez une personne.
+`cli fetch-athletes` a porté le cache de 62 à **183 archives** ; 61 athlètes
+passent les critères de la cohorte et portent l'expérience.
 
-Tout ce dont l'expérience a besoin se trouve dans le `<uuid>.json` de chaque
-archive : date, discipline, puissance critique de vingt minutes, et un TRIMP.
-Décoder les CSV de 62 athlètes coûterait des heures pour la même réponse. La
-contrepartie est déclarée et vérifiée : la charge employée est celle de
-GoldenCheetah (`trimp_points`), corrélée à **0,982** avec le TRIMP du dépôt
-chez l'athlète de référence (0,984 sur le vélo), pour un rapport médian de
-0,938. Suffisant pour savoir si une relation se réplique ; insuffisant pour
-publier un coefficient.
+Tout vient des `<uuid>.json` des archives : date, discipline, puissance
+critique de vingt minutes, TRIMP. La contrepartie est déclarée et vérifiée — la
+charge employée est `trimp_points` de GoldenCheetah, corrélée à **0,982** avec
+le TRIMP du dépôt chez l'athlète de référence (0,984 sur le vélo), pour un
+rapport médian de 0,938. Suffisant pour savoir si une relation se réplique ;
+insuffisant pour publier un coefficient.
 
-### L'effet ne se réplique pas comme fait de population
+### Trois résultats, et le nombre de sujets change les conclusions
 
 | comparaison | athlètes | gain médian | Q1 · Q3 | gain > 0 | IC > 0 | IC < 0 | p signe |
 |---|---:|---:|---|---:|---:|---:|---:|
-| charge vélo / **moyenne** | 13 | −0,008 | [−0,058 · +0,314] | 6/13 | **4** | **0** | 1,000 |
-| charge vélo / **persistance** | 13 | −1,376 | [−1,850 · −0,592] | 1/13 | 0 | 6 | **0,003** |
-| charge vélo / charge course | 6 | +0,418 | [−0,115 · +0,596] | 4/6 | 2 | 0 | 0,688 |
+| charge vélo / **moyenne** | 61 | +0,130 | [−0,058 · +0,366] | 40/61 | **23** | **5** | **0,020** |
+| charge vélo / **persistance** | 61 | −1,153 | [−1,707 · −0,592] | 3/61 | 0 | **32** | **<0,0001** |
+| charge vélo / **charge course** | 35 | +0,481 | [+0,160 · +0,731] | 29/35 | **14** | 0 | **0,0001** |
 
-La médiane est nulle et le test du signe vaut 1,000 : **l'effet mesuré chez
-l'athlète de référence n'est pas un fait général.** Il fallait le savoir avant
-d'en dépendre.
+**L'appariement de discipline est le résultat le plus solide du dépôt.** Sur
+les 35 athlètes qui pratiquent les deux, opposer à une puissance vélo la charge
+vélo plutôt que la charge course vaut +0,481 de compétence médiane, avec
+quatorze intervalles excluant zéro et **aucun en sens inverse**, test du signe
+à p = 0,0001. La charge de course sert ici de contrôle négatif : si elle
+prédisait une puissance en vélo, il faudrait chercher une fuite dans
+l'alignement des dates avant de parler de transfert physiologique.
 
-Mais ce n'est pas du bruit non plus. **Quatre athlètes sur treize ont un
-intervalle qui exclut zéro en faveur de la charge, et aucun n'en a un qui
-l'exclut contre.** Sous l'hypothèse du hasard, avec des intervalles à 95 %, on
-attendrait environ 0,3 de chaque côté. L'asymétrie est le résultat.
+**La domination de la persistance est écrasante.** Trois athlètes sur 61 la
+battent, trente-deux ont un intervalle qui l'exclut en sa faveur, p < 0,0001.
+C'est le constat le plus robuste du projet, et il vaut pour la population.
+
+### Ce que treize athlètes ne pouvaient pas voir
+
+Sur les treize premiers athlètes, le test du signe contre la moyenne valait
+**p = 1,000** et j'en concluais que l'effet ne se répliquait pas comme fait de
+population. Sur 61, il vaut **p = 0,020**.
+
+Cette conclusion n'était pas fausse, elle était **sans puissance** — exactement
+ce que le plancher de détectabilité construit plus haut sert à chiffrer. Le
+nombre de sujets était le facteur limitant, et il l'était de façon mesurable.
+
+Deux choses apparaissent aussi, que treize sujets cachaient. D'abord **cinq
+athlètes dont l'intervalle exclut zéro *contre* la charge** : chez eux, nourrir
+le modèle de la charge dégrade la prévision par rapport à prédire la moyenne.
 
 | athlète | jours | puiss. | plis | R² charge | R² moyenne | gain | IC 95 % |
 |---|---:|---:|---:|---:|---:|---:|---|
-| 250ee69b | 437 | 227 | 12 | +0,420 | −0,040 | **+0,442** | **[+0,173 · +0,665]** |
-| 9e4573b1 | 1213 | 417 | 38 | +0,283 | −0,090 | **+0,342** | **[+0,060 · +0,526]** |
-| 36cdfd30 | 877 | 485 | 27 | +0,408 | +0,128 | **+0,321** | **[+0,181 · +0,458]** |
-| bc363cef | 692 | 795 | 19 | +0,172 | +0,009 | **+0,165** | **[+0,020 · +0,290]** |
-| 7c3be9dc | 470 | 169 | 11 | +0,272 | −0,061 | +0,314 | [−0,032 · +0,534] |
-| 537ba4dd | 688 | 418 | 19 | +0,099 | +0,089 | +0,011 | [−0,279 · +0,158] |
-| 1feeb5c6 | 1168 | 601 | 36 | −0,067 | −0,059 | −0,008 | [−0,630 · +0,386] |
-| e4dbd3b3 | 672 | 193 | 21 | −0,121 | −0,082 | −0,036 | [−0,448 · +0,176] |
-| 9a708c09 | 1116 | 294 | 37 | +0,030 | +0,080 | −0,054 | [−0,598 · +0,328] |
-| ea20681e | 968 | 289 | 30 | +0,052 | +0,104 | −0,058 | [−0,223 · +0,176] |
-| 62752551 | 752 | 493 | 22 | −0,390 | −0,116 | −0,246 | [−0,991 · +0,320] |
-| bdc5457c | 406 | 252 | 14 | −1,718 | −0,925 | −0,412 | [−1,718 · +0,378] |
-| 3167e01c | 531 | 264 | 13 | −2,521 | −0,124 | −2,134 | [−18,006 · +0,001] |
+| a49a2a94 | 500 | 275 | 12 | −0,777 | −0,044 | −0,703 | [−1,404 · −0,210] |
+| 0031326c | 456 | 263 | 11 | −0,359 | +0,048 | −0,428 | [−1,150 · −0,018] |
+| 2d6239bd | 617 | 178 | 18 | −0,486 | −0,047 | −0,419 | [−0,849 · −0,048] |
+| 7b8034de | 648 | 1090 | 17 | −0,362 | −0,089 | −0,250 | [−0,500 · −0,042] |
+| ae4b2ab7 | 1245 | 276 | 47 | −0,126 | −0,056 | −0,066 | [−0,216 · −0,012] |
 
-`9e4573b1` est l'athlète de référence du dépôt. Il est l'un des quatre
-répondeurs — son résultat n'était donc pas un artefact, mais il n'était pas
-typique, et tout ce que le dépôt publiait reposait sur un cas favorable choisi
-pour d'autres raisons.
+L'hétérogénéité est donc **bidirectionnelle**, et non une simple présence ou
+absence d'effet. Un jumeau numérique qui suppose une dose-réponse ne se
+contente pas de ne rien apporter chez une majorité : chez une minorité, il
+prédit activement moins bien que la moyenne.
 
 ### Hétérogénéité réelle, ou défaut de mesure ?
 
-Quand une minorité montre un effet et le reste rien, deux lectures s'opposent
-et elles ne mènent pas au même modèle. Soit l'effet est **universel mais noyé**
-chez les athlètes mal mesurés — auquel cas leurs estimations ponctuelles
-restent positives, seulement avec des intervalles trop larges pour conclure.
-Soit l'effet **n'existe que chez certains**, et les estimations des autres se
-répartissent autour de zéro quelle que soit leur précision.
-
 | groupe | athlètes | gain médian | gain > 0 | largeur d'IC | puiss. méd. | plis méd. |
 |---|---:|---:|---:|---:|---:|---:|
-| détectés | 4 | **+0,331** | 4/4 | 0,372 | 451 | 23 |
-| non détectés | 9 | **−0,054** | 2/9 | 0,925 | 289 | 21 |
+| détectés | 23 | **+0,442** | 23/23 | 0,397 | 408 | 25 |
+| non détectés | 38 | **−0,025** | 17/38 | 0,688 | 294 | 22 |
 
-Les détectés sont bien mieux mesurés — intervalles 2,5 fois plus serrés — mais
-**leur gain diffère aussi**, et c'est ce qui tranche : les non détectés sont
-centrés sur −0,054, avec 2 estimations positives sur 9. Ils ne sont pas
-positifs-mais-noyés, ils sont nuls. Le nombre de plis est d'ailleurs presque
-identique entre les deux groupes (23 contre 21), donc ce n'est pas une
-différence de puissance statistique.
+Le contraste tient à 61 sujets comme il tenait à 13, et il est plus net. Les
+détectés sont mieux mesurés — intervalles 1,7 fois plus serrés — mais **leur
+gain diffère aussi**, et c'est ce qui tranche : les non détectés sont centrés
+sur −0,025, avec 17 estimations positives sur 38, soit la répartition qu'on
+attend autour de zéro. Ils ne sont pas positifs-mais-noyés, ils sont nuls.
+Le nombre de plis médian est d'ailleurs presque identique entre les deux
+groupes (25 contre 22), donc ce n'est pas une différence de puissance.
 
-**L'hétérogénéité entre athlètes est réelle.** Chez certains, la puissance de
-vingt minutes répond à la charge d'une façon que le modèle de Banister capte ;
-chez la plupart, non. Aucune des variables essayées — charge moyenne,
-variabilité de la charge, proportion de jours de repos, dispersion de la
-puissance — ne sépare les deux groupes sur treize athlètes, et rien ne sera
-affirmé là-dessus sans plus de sujets.
-
-### Ce que la réplication change
-
-La domination de la persistance, elle, se réplique solidement : médiane
-−1,376, un athlète sur treize au-dessus, test du signe à **p = 0,003**. C'est
-le constat le plus robuste de ce dépôt, et il vaut pour la population, pas
-seulement pour un cas.
-
-Le reste impose de la prudence. Un jumeau numérique qui suppose une
-dose-réponse de charge se trompera chez environ deux athlètes sur trois — et
-rien, dans les données dont il dispose à l'inscription, ne permet de savoir
-lequel il a en face. Un modèle hiérarchique à pooling partiel est la suite
-naturelle : il estimerait la variance inter-athlètes de k₁ au lieu de la
-constater, et rendrait les constantes de temps identifiables, ce qu'elles ne
-sont pas sur un athlète seul.
-
-```bash
-python -m src.cli cohort         # criblage, replication, contraste
-```
+**L'hétérogénéité entre athlètes est réelle.** Et aucune variable disponible à
+l'inscription ne sépare les deux groupes, ce qui reste la question ouverte du
+projet.
 
 ---
 

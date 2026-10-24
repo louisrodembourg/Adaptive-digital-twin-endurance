@@ -57,8 +57,8 @@ sur un échantillonnage convergé. Un modèle de fondation (Chronos-2, 120 M de
 paramètres) nourri de la charge passée *et future* n'extrait rien de plus que
 l'inertie.
 
-Et le constat se réplique : sur treize athlètes, un seul bat la persistance,
-test du signe à **p = 0,003**.
+Et le constat se réplique largement : sur **61 athlètes**, trois seulement
+battent la persistance, test du signe à **p < 0,0001**.
 
 ### Un seul effet a survécu à son intervalle
 
@@ -73,8 +73,9 @@ observations jamais exploitées jusque-là :
 | charge vélo **contre prédire la moyenne** | +0,339 | [+0,055 · +0,524] |
 
 Apparier la discipline vaut +0,63 de compétence. Mais l'effet est
-**hétérogène** : présent chez quatre athlètes sur treize, absent chez les neuf
-autres, et aucune variable disponible à l'inscription ne les distingue.
+**hétérogène** : présent chez **23 athlètes sur 61**, absent chez 33 — et
+franchement **nuisible chez 5**, dont l'intervalle exclut zéro dans l'autre
+sens. Aucune variable disponible à l'inscription ne distingue les groupes.
 
 Le résultat nul n'est donc pas annulé — il est circonscrit.
 
@@ -88,7 +89,7 @@ Cinq commandes, qui produisent tous les chiffres ci-dessus.
 python -m src.cli ingest      # 917 séances → charge, performance, provenance
 python -m src.cli calibrate   # FC max/repos estimées, jamais supposées
 python -m src.cli evaluate    # 5 protocoles + planchers de détectabilité
-python -m src.cli cohort      # réplication sur 13 athlètes
+python -m src.cli cohort      # réplication sur 61 athlètes
 python -m src.cli plan        # une semaine, et ce qu'elle ne promet pas
 python -m src.cli pool        # modèle hiérarchique sur la cohorte (~25 min)
 ```
@@ -176,8 +177,8 @@ entièrement les covariables, sa prévision est identique **au bit près**. Un
 test le mesure.
 
 **Un résultat sur un athlète est une anecdote.** Mon premier effet positif
-venait de l'athlète de référence du dépôt. Il s'est avéré être l'un des quatre
-répondeurs sur treize — réel, mais pas typique.
+venait de l'athlète de référence du dépôt. Il s'est avéré être l'un des 23
+répondeurs sur 61 — réel, mais pas typique.
 
 **Ajuster n'est pas prédire, et j'ai pu le chiffrer.** Un modèle hiérarchique
 sur quatorze athlètes trouve un effet de charge excluant zéro chez **12 d'entre

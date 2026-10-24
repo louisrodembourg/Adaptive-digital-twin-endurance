@@ -71,11 +71,11 @@ semaine sous contraintes ; il ne prévoit pas ce qu'elle produira, et le
 verdict de dose-réponse qu'il affiche est mesuré sur le passé de l'athlète.
 Rien ne garantit qu'un répondeur le reste.
 
-**Qui répond reste inexpliqué.** Quatre athlètes sur treize montrent un effet
-de charge dont l'intervalle exclut zéro, neuf non. Ni la charge moyenne, ni sa
-variabilité, ni la proportion de jours de repos, ni la dispersion de la
-puissance ne séparent les deux groupes. Sur treize sujets c'est attendu, et
-rien ne sera affirmé là-dessus sans plus de monde.
+**Qui répond reste inexpliqué.** Vingt-trois athlètes sur 61 montrent un effet
+dont l'intervalle exclut zéro, trente-huit non, et cinq le montrent en sens
+inverse. Ni la charge moyenne, ni sa variabilité, ni la proportion de jours de
+repos, ni la dispersion de la puissance ne séparent les groupes. C'est la
+question ouverte du projet, et elle a survécu au passage de 13 à 61 sujets.
 
 **L'enveloppe est autocorrélée par construction**, donc facile à prédire. Le
 +0,318 de la persistance mesure l'inertie, pas une compréhension de la
@@ -160,8 +160,8 @@ Maturite : 1/6 capacites disponibles
                                           manque : 224 jour(s) (8 pli(s))
 
   En attendant son propre verdict :
-    Chez 4 athlete(s) sur 13 de la cohorte, la charge explique la performance avec un intervalle qui exclut zero ;
-    chez 9, non. Rien dans les donnees disponibles a l'inscription ne dit lequel vous etes.
+    Chez 23 athlete(s) sur 61 de la cohorte, la charge explique la performance avec un intervalle qui exclut zero ;
+    chez 38, non. Rien dans les donnees disponibles a l'inscription ne dit lequel vous etes.
 ```
 
 Ce prior se lit dans `cohort_replication.parquet`, jamais recopié : un chiffre
