@@ -83,15 +83,16 @@ Le résultat nul n'est donc pas annulé — il est circonscrit.
 
 ## Le fonctionnement
 
-Cinq commandes, qui produisent tous les chiffres ci-dessus.
+Sept commandes, qui produisent tous les chiffres ci-dessus.
 
 ```bash
-python -m src.cli ingest      # 917 séances → charge, performance, provenance
-python -m src.cli calibrate   # FC max/repos estimées, jamais supposées
-python -m src.cli evaluate    # 5 protocoles + planchers de détectabilité
-python -m src.cli cohort      # réplication sur 61 athlètes
-python -m src.cli plan        # une semaine, et ce qu'elle ne promet pas
-python -m src.cli pool        # modèle hiérarchique sur la cohorte (~25 min)
+python -m src.cli ingest         # 917 séances → charge, performance, provenance
+python -m src.cli calibrate      # FC max/repos estimées, jamais supposées
+python -m src.cli evaluate       # 5 protocoles + planchers de détectabilité
+python -m src.cli cohort         # réplication sur 61 athlètes
+python -m src.cli plan           # une semaine, et ce qu'elle ne promet pas
+python -m src.cli validate-plan  # ce que ses bornes valent face aux données
+python -m src.cli pool           # modèle hiérarchique sur la cohorte (~2 h 30)
 ```
 
 Le planificateur mérite un mot, parce qu'il découle directement de la mesure.
@@ -113,9 +114,17 @@ Un effet de charge est donc démontré chez cet athlète — ce plan ne le maxim
 pas pour autant, il délivre un stimulus au moindre coût.
 ```
 
-L'athlète de référence est l'un des quatre répondeurs. Chez les neuf autres, la
-dernière phrase devient « ce plan n'optimise aucune performance prédite, et ne
-peut pas en promettre » — et c'est l'information utile.
+L'athlète de référence est l'un des 23 répondeurs sur 61. Chez les 38 autres,
+la dernière phrase devient « ce plan n'optimise aucune performance prédite, et
+ne peut pas en promettre » — et c'est l'information utile.
+
+Ses bornes de sécurité, elles, viennent de la littérature, et c'est une raison
+de les écrire plutôt qu'une mesure. `validate-plan` les confronte à
+6768 semaines réelles de 66 athlètes : le plancher de retention en sort
+**soutenu** (+0,051 σ sur l'effort médian, 37 athlètes sur 55, p = 0,0145), le
+plafond de charge aiguë et celui des jours consécutifs **indéterminables** à
+0,20 σ près. Une borne indéterminable reste appliquée — mais le dépôt dit
+maintenant laquelle il a mesurée.
 
 Ce verdict demande plus de quatre cents jours d'historique. `cli state` rend
 donc une **échelle de maturité** : quelles capacités sont disponibles
@@ -207,6 +216,16 @@ physiologique : l'enveloppe étant un maximum glissant sur 42 jours, le modèle
 apprend probablement en partie la fenêtre de lissage. Identifiées n'est pas
 validé, et seule la première moitié était l'objectif.
 
+**Un résultat massif peut être entièrement un artefact.** En confrontant les
+bornes du planificateur aux données, mon premier protocole a répondu que
+respecter le plafond de charge aiguë **coûtait 0,333 σ de performance**, avec
+7 athlètes sur 55 en faveur et p < 0,0001. J'étais à un commit de démonter une
+règle de sécurité. Trois confonds s'empilaient : une cible qui ne bouge que
+par paliers, la semaine évaluée qui entrait dans sa propre issue, et un maximum
+mécaniquement plus grand quand on l'évalue sur plus de sorties. Les corriger ne
+laisse rien : −0,042 σ, p = 0,18. Un p très petit mesure la cohérence d'un
+protocole avec lui-même, pas sa validité.
+
 **Le code mort mentait.** Trois règles de sécurité existaient sans être
 branchées : le rapport charge aiguë sur charge chronique, un seuil de VFC lu
 sous une clé absente de la configuration, et une indisponibilité déclarée par
@@ -231,21 +250,27 @@ mesure. Le seul élément trouvé pour l'instant est la puissance de mesure
 elle-même (corrélation de rang +0,28 avec la longueur d'historique), et ce
 n'est pas une variable connue à l'inscription.
 
-**Instruire les cinq cas négatifs.** Un athlète dont la charge *dégrade* la
-prévision est soit un artefact — historique court, trou de données, changement
-de capteur — soit un signal qu'un planificateur devrait traiter différemment.
-Quatre des cinq ont un historique court, le cinquième a 1245 jours et
-l'intervalle le plus serré des cinq : celui-là n'est pas du bruit.
+**Les cinq cas négatifs sont instruits, et ils restent ouverts.** Aucun
+artefact établi — les trous de données, ruptures de niveau et ruptures
+d'échelle de ces cinq athlètes restent dans l'étendue des 23 répondeurs. Mon
+hypothèse mécaniste (une charge qui tend fait extrapoler le modèle vers le
+haut) est réfutée : le biais est symétrique sur les 61. Les deux écarts qui
+subsistent — pente de charge et amplitude d'erreur — tombent à p = 0,074 et
+0,070, juste sous ce que cinq sujets permettent de voir.
 
 **Vérifier si les constantes de temps mesurent la physiologie ou la fenêtre de
 lissage.** Refaire l'ajustement hiérarchique à fenêtre d'enveloppe réduite. Si
 τ₁ et τ₂ suivent la fenêtre, le résultat le plus citable du modèle tombe.
 
-**Valider le planificateur contre ce que les athlètes ont réellement fait.** Il
-propose des semaines et personne n'a mesuré si ses propositions ressemblent à
-celles des athlètes qui progressent. Avec soixante-et-un historiques, c'est
-faisable — et une évaluation hors échantillon d'un planificateur n'existe
-nulle part dans ce dépôt.
+**Reformuler la contrainte de jours consécutifs.** La mesure ne conclut pas sur
+le plafond à 3 jours, mais sa ventilation est claire : l'issue monte de 0 à 3
+jours consécutifs puis retombe à partir de 4. Le seuil est posé au bon endroit
+et la contrainte « ≤ 3 » dilue le gain qu'elle devrait capter, puisqu'elle
+accepte aussi 0, 1 et 2. C'est un défaut de formulation, et il est corrigeable.
+
+**Tester les plafonds par type de séance.** `validate-plan` ne les atteint pas :
+les résumés publics ne portent pas les types. Un export personnel les
+porterait, et c'est la moitié du planificateur qui reste non mesurée.
 
 ---
 

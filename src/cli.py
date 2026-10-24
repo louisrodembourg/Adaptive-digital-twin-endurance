@@ -5,7 +5,7 @@ Ces commandes sont aussi le mode d'emploi du depot : elles reproduisent, a
 partir d'un jeu de donnees public, chaque chiffre affiche par le tableau de
 bord. C'est ce qui rend les resultats verifiables plutot que declaratifs.
 
-    python -m src.cli screen-athletes --n 200
+    python -m src.cli fetch-athletes --critere course --keep 3
     python -m src.cli ingest    [--athlete UUID] [--limit N]
     python -m src.cli calibrate
     python -m src.cli state
@@ -41,6 +41,11 @@ from .evaluation.cohort import (
     summarise_cohort,
 )
 from .evaluation.foundation import SPECS, build_forecast_context, is_available, variant_name
+from .evaluation.plan_rules import (
+    evaluate_plan_rules,
+    format_plan_rules,
+    weekly_frame,
+)
 from .evaluation.readiness import assess_readiness, format_readiness
 from .evaluation.report import (
     BIKE_SPORTS,
@@ -63,7 +68,9 @@ from .ingestion.opendata import (
     OpenDataClient,
     ScreeningCriteria,
     read_summary,
-    screen_athletes,
+)
+from .ingestion.opendata import (
+    evaluate_athlete as evaluate_screening,
 )
 from .layer_a_signal.envelope import EnvelopeSpec, rolling_envelope
 from .layer_c_planner.dose_response import assess_dose_response
@@ -86,33 +93,6 @@ def _configure_logging(verbose: bool) -> None:
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(levelname)s %(name)s: %(message)s",
     )
-
-
-# ── screen-athletes ───────────────────────────────────────────────────────
-
-def cmd_screen(args, cfg: Config) -> int:
-    client = OpenDataClient(cache_dir=cfg.paths.cache, node=cfg.data_source.osf_node)
-    criteria = ScreeningCriteria(
-        min_runs=args.min_runs,
-        min_span_days=args.min_span_days,
-        min_hr_coverage=args.min_hr_coverage,
-    )
-    seen = 0
-
-    def show(result):
-        nonlocal seen
-        seen += 1
-        if result.passed or len(result.summary.runs) >= 20:
-            print(f"{seen:4d}. {result.describe()}", flush=True)
-
-    kept = screen_athletes(client, max_candidates=args.n, stop_after=args.keep,
-                           criteria=criteria, on_result=show)
-    print(f"\n{len(kept)} athlete(s) retenu(s) sur {seen} examine(s).")
-    for r in kept:
-        print(f"  {r.summary.uuid}  file_id={r.remote.file_id}  md5={r.remote.md5}")
-    if kept:
-        print(f"\nAjouter l'elu a {cfg.data_source.manifest}, puis `cli ingest`.")
-    return 0 if kept else 1
 
 
 # ── ingest ────────────────────────────────────────────────────────────────
@@ -273,9 +253,11 @@ ABLATION_FILE = "evaluation_ablation.parquet"
 PROVENANCE_FILE = "evaluation_provenance.json"
 DURATIONS_FILE = "evaluation_durations.parquet"
 FLOORS_FILE = "evaluation_detectability.parquet"
+DURATION_PAIRS_FILE = "evaluation_duration_pairs.parquet"
 COHORT_FILE = "cohort_replication.parquet"
 POOLING_FILE = "pooling_summary.parquet"
 POOLING_EFFECTS_FILE = "pooling_effects.parquet"
+PLAN_RULES_FILE = "plan_rules.parquet"
 
 
 def _package_versions(models: tuple[str, ...]) -> dict[str, str]:
@@ -401,7 +383,7 @@ def cmd_evaluate(args, cfg: Config) -> int:
     if not ablation.empty:
         print("\n\nComparaisons appariees — bootstrap par blocs sur les plis\n")
         print(format_pairs(ablation))
-        ablation.to_parquet(cfg.paths.processed / ABLATION_FILE, index=False)
+        ablation = ablation.assign(cible="course")
 
     # Protocole 3 : une enveloppe PAR DUREE d'effort. `perf_index` prend un
     # maximum sur les durees avant que l'enveloppe en reprenne un sur 42
@@ -419,6 +401,8 @@ def cmd_evaluate(args, cfg: Config) -> int:
         if not duration_pairs.empty:
             print("\n\nCharge specifique contre persistance, duree par duree\n")
             print(format_pairs(duration_pairs))
+            duration_pairs.to_parquet(
+                cfg.paths.processed / DURATION_PAIRS_FILE, index=False)
 
     # Protocole 4 : le plancher de detectabilite. Il ne mesure pas l'athlete,
     # il mesure le protocole — quel effet celui-ci saurait voir. Sans ce
@@ -431,7 +415,7 @@ def cmd_evaluate(args, cfg: Config) -> int:
         print("\n\nPlancher de detectabilite — effet de charge SYNTHETIQUE "
               "ajoute a l'enveloppe reelle\n")
         print(format_detectability(floors))
-        floors.to_parquet(cfg.paths.processed / FLOORS_FILE, index=False)
+        floors = floors.assign(cible="course")
 
     # Protocole 5 : la CIBLE VELO. C'est l'appariement que le depot n'avait
     # jamais fait — 68,5 % de la charge est cycliste, et la puissance critique
@@ -456,9 +440,24 @@ def cmd_evaluate(args, cfg: Config) -> int:
         if not bike_pairs.empty:
             print("\n\nCharge velo contre les autres, sur la cible velo\n")
             print(format_pairs(bike_pairs))
+            ablation = pd.concat([ablation, bike_pairs.assign(cible="velo")],
+                                 ignore_index=True)
         if bike_floors is not None and not bike_floors.empty:
             print("\n\nPlancher de detectabilite sur la cible velo\n")
             print(format_detectability(bike_floors))
+            floors = pd.concat([floors, bike_floors.assign(cible="velo")],
+                               ignore_index=True)
+
+    # Les deux cibles sont ecrites ensemble, chacune portant sa colonne
+    # `cible`. Elles l'etaient separement, et la cible velo ne l'etait pas du
+    # tout : le tableau de bord n'affichait donc que le plancher de la cible
+    # course — celui qui vaut 2 sigma contre la persistance, c'est-a-dire le
+    # protocole le MOINS puissant du depot. Montrer le plus faible et taire le
+    # plus fort est exactement l'inverse de ce que ces artefacts servent.
+    if not floors.empty:
+        floors.to_parquet(cfg.paths.processed / FLOORS_FILE, index=False)
+    if not ablation.empty:
+        ablation.to_parquet(cfg.paths.processed / ABLATION_FILE, index=False)
 
     table = pd.concat(tables, ignore_index=True)
 
@@ -530,14 +529,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-v", "--verbose", action="store_true")
     sub = p.add_subparsers(dest="command", required=True)
 
-    s = sub.add_parser("screen-athletes", help="chercher un athlete exploitable")
-    s.add_argument("--n", type=int, default=200, help="candidats a examiner")
-    s.add_argument("--keep", type=int, default=3, help="s'arreter apres N retenus")
-    s.add_argument("--min-runs", type=int, default=100)
-    s.add_argument("--min-span-days", type=int, default=300)
-    s.add_argument("--min-hr-coverage", type=float, default=0.85)
-    s.set_defaults(func=cmd_screen)
-
     i = sub.add_parser("ingest", help="construire les artefacts depuis une source")
     i.add_argument("--athlete", help="UUID (defaut : data_source.athlete_ref)")
     i.add_argument("--limit", type=int, help="s'arreter apres N seances")
@@ -592,8 +583,16 @@ def build_parser() -> argparse.ArgumentParser:
                     help="chaines en parallele ; 1 par defaut, le parallele plante sur ce graphe")
     po.add_argument("--stride", type=int, default=28,
                     help="un point d'enveloppe tous les N jours")
+    po.add_argument("--fenetre", type=int, default=42,
+                    help="fenetre du maximum glissant de l'enveloppe, en jours ; "
+                         "une valeur differente de 42 ecrit des artefacts "
+                         "distincts et ne remplace pas la mesure publiee")
     po.add_argument("--seed", type=int, default=0)
     po.set_defaults(func=cmd_pool)
+
+    vp = sub.add_parser("validate-plan",
+                        help="confronter les bornes du planificateur aux donnees")
+    vp.set_defaults(func=cmd_validate_plan)
 
     fa = sub.add_parser("fetch-athletes",
                         help="telecharger des archives pour elargir la cohorte")
@@ -605,6 +604,17 @@ def build_parser() -> argparse.ArgumentParser:
                     help="taille maximale d'une archive, en Mo")
     fa.add_argument("--min-observations", type=int, default=60,
                     help="observations de puissance exigees pour etre eligible")
+    fa.add_argument("--critere", choices=("velo", "course"), default="velo",
+                    help="velo : puissance, pour la cohorte ; course : "
+                         "historique de course, pour choisir un sujet")
+    fa.add_argument("--keep", type=int,
+                    help="s'arreter apres N athletes retenus")
+    fa.add_argument("--min-runs", type=int, default=100,
+                    help="--critere course : courses exigees")
+    fa.add_argument("--min-span-days", type=int, default=300,
+                    help="--critere course : etendue d'historique exigee")
+    fa.add_argument("--min-hr-coverage", type=float, default=0.85,
+                    help="--critere course : couverture cardiaque exigee")
     fa.set_defaults(func=cmd_fetch_athletes)
     return p
 
@@ -626,7 +636,8 @@ def cmd_cohort(args, cfg: Config) -> int:
                        horizon_days=args.horizon, min_train_days=args.min_train)
     if table.empty:
         print("Aucun athlete du cache ne peut porter l'experience. "
-              "Lancer `cli screen-athletes` puis `cli ingest`.", file=sys.stderr)
+              "Lancer `cli fetch-athletes --critere course` puis "
+              "`cli ingest`.", file=sys.stderr)
         return 1
 
     summary = summarise_cohort(table)
@@ -733,7 +744,8 @@ def cmd_pool(args, cfg: Config) -> int:
     for frames in screen_cache(cfg.paths.cache / "opendata",
                                CohortCriteria(min_folds=0)):
         block = prepare_athlete(frames.uuid, build_daily_load(frames.sessions),
-                                frames.power, stride_days=args.stride)
+                                frames.power, stride_days=args.stride,
+                                window_days=args.fenetre)
         if block is not None:
             blocks.append(block)
     data = CohortData(tuple(blocks), stride_days=args.stride)
@@ -742,6 +754,7 @@ def cmd_pool(args, cfg: Config) -> int:
         return 1
 
     print(data.describe())
+    print(f"Enveloppe : maximum glissant sur {args.fenetre} jours.")
     print(f"\nEchantillonnage : {args.chains} chaine(s) de {args.tune} + "
           f"{args.draws} iterations, en sequentiel. Comptez des dizaines de "
           "minutes.\n")
@@ -779,22 +792,89 @@ def cmd_pool(args, cfg: Config) -> int:
               "converge. Augmenter --chains ou --tune.", file=sys.stderr)
         healthy = False
 
-    summary.to_parquet(cfg.paths.processed / POOLING_FILE, index=False)
-    effects.to_parquet(cfg.paths.processed / POOLING_EFFECTS_FILE, index=False)
-    print(f"\nEcrit : {cfg.paths.processed / POOLING_FILE}")
+    # Une fenetre non standard produit des artefacts SEPARES. Les constantes
+    # de temps sortent serrees et incompatibles avec la litterature, et
+    # l'hypothese est qu'elles apprennent en partie la fenetre de lissage :
+    # l'experience qui le verifie doit donc pouvoir tourner sans effacer la
+    # mesure publiee, qu'elle est precisement censee mettre en doute.
+    suffix = "" if args.fenetre == 42 else f"_f{args.fenetre}"
+    out = cfg.paths.processed / POOLING_FILE.replace(".parquet", f"{suffix}.parquet")
+    out_effects = cfg.paths.processed / POOLING_EFFECTS_FILE.replace(
+        ".parquet", f"{suffix}.parquet")
+    summary.to_parquet(out, index=False)
+    effects.to_parquet(out_effects, index=False)
+    print(f"\nEcrit : {out}")
     return 0 if healthy else 1
 
 
 
+def cmd_validate_plan(args, cfg: Config) -> int:
+    """
+    Confronte les bornes du planificateur a ce que les athletes ont fait.
+
+    C'est la seule evaluation hors echantillon du planificateur du depot : il
+    proposait des semaines sous des bornes issues de la litterature, et aucune
+    n'avait jamais rencontre de donnees. Les seuils sont lus dans la
+    configuration et dans `StimulusTarget`, jamais recopies ici.
+    """
+    planner = load_params().get("planner", {}) or {}
+    acwr_upper = float(planner.get("acwr_upper_bound", 1.5))
+    acwr_lower = float(planner.get("min_weekly_retention_pct", 80)) / 100.0
+    max_consecutive = StimulusTarget().max_consecutive_training_days
+
+    frames = []
+    for athlete in screen_cache(cfg.paths.cache / "opendata",
+                                CohortCriteria(min_folds=0)):
+        week = weekly_frame(athlete.uuid, build_daily_load(athlete.sessions),
+                            athlete.power)
+        if not week.empty:
+            frames.append(week)
+    if not frames:
+        print("Aucun athlete exploitable dans le cache. "
+              "Lancer `cli fetch-athletes`.", file=sys.stderr)
+        return 1
+
+    weeks = pd.concat(frames, ignore_index=True)
+    print(f"{weeks['uuid'].nunique()} athlete(s), {len(weeks)} semaine(s) "
+          f"calendaire(s). Issue : meilleur effort et effort median de "
+          f"[fin+7 ; fin+42] contre [fin-42 ; fin-7].")
+    print(f"Bornes testees : ACWR <= {acwr_upper:g}, ACWR >= {acwr_lower:g}, "
+          f"au plus {max_consecutive} jours consecutifs.\n")
+
+    table = evaluate_plan_rules(weeks, acwr_upper=acwr_upper,
+                                acwr_lower=acwr_lower,
+                                max_consecutive=max_consecutive)
+    if table.empty:
+        print("Aucune regle comparable : pas assez de semaines de chaque cote.",
+              file=sys.stderr)
+        return 1
+    print(format_plan_rules(table))
+    table.to_parquet(cfg.paths.processed / PLAN_RULES_FILE, index=False)
+    print(f"\nEcrit : {cfg.paths.processed / PLAN_RULES_FILE}")
+
+    # Une regle contredite est une alerte, pas une ligne de tableau : le
+    # planificateur l'applique encore, et continuer sans le dire serait
+    # exactement le « plan degrade qui se lit comme un plan optimal » que ce
+    # depot refuse.
+    contredites = table[table["verdict"] == "contredite"]["regle"].unique()
+    if len(contredites):
+        print(f"\nRegle(s) contredite(s) par les donnees : "
+              f"{', '.join(contredites)}.", file=sys.stderr)
+    return 0
+
+
 def cmd_fetch_athletes(args, cfg: Config) -> int:
     """
-    Telecharge des archives et dit lesquelles peuvent porter la cohorte.
+    Parcourt le catalogue, telecharge, et dit quelles archives sont utilisables.
 
-    Le criblage historique (`cli screen-athletes`) exige 150 COURSES : il a
-    servi a choisir le sujet de demonstration, dont la cible est une vitesse
-    en course a pied. La cohorte tourne sur la puissance velo, donc sur un
-    autre critere — d'ou cette commande, qui juge chaque archive sur ce que le
-    modele hierarchique lui demande vraiment.
+    Un seul criblage, deux criteres. Il y en avait deux commandes, qui
+    parcouraient le meme catalogue et telechargeaient de la meme facon en ne
+    differant que par la condition d'acceptation — `--critere velo` juge une
+    archive sur ses observations de puissance, ce que demande la cohorte, et
+    `--critere course` sur son historique de course a pied, ce qui avait servi
+    a choisir le sujet de demonstration. Deux chemins pour une meme passe de
+    plusieurs centaines de telechargements finissaient par deriver l'un de
+    l'autre.
 
     Reprenable : `fetch_athlete` saute ce qui est deja en cache avec le bon
     md5, donc relancer la commande ne retelecharge rien.
@@ -802,12 +882,38 @@ def cmd_fetch_athletes(args, cfg: Config) -> int:
     from .evaluation.cohort import CohortCriteria, summary_to_frames
 
     client = OpenDataClient(cache_dir=cfg.paths.cache, node=cfg.data_source.osf_node)
-    criteria = CohortCriteria(min_power_observations=args.min_observations)
     cached_before = len(list(client.cache_dir.glob("*.zip")))
-    print(f"{cached_before} archive(s) deja en cache. Examen de {args.n} "
-          f"candidat(s), au plus {args.max_new} telechargement(s).\n")
+    print(f"{cached_before} archive(s) deja en cache. Critere « {args.critere} », "
+          f"examen de {args.n} candidat(s), au plus {args.max_new} "
+          f"telechargement(s).\n")
+
+    if args.critere == "velo":
+        criteria = CohortCriteria(min_power_observations=args.min_observations)
+
+        def judge(remote, summary):
+            """Eligible a la cohorte : assez de puissances, assez d'etendue."""
+            frames = summary_to_frames(summary)
+            if frames is None:
+                return False, ""
+            keeps = (len(frames.power) >= criteria.min_power_observations
+                     and frames.span_days >= criteria.min_span_days)
+            return keeps, (f"{len(frames.power):4d} puissances, "
+                           f"{frames.span_days:5d} jours")
+    else:
+        screening = ScreeningCriteria(min_runs=args.min_runs,
+                                      min_span_days=args.min_span_days,
+                                      min_hr_coverage=args.min_hr_coverage)
+
+        def judge(remote, summary):
+            """Sujet de demonstration : historique de course long et cardio."""
+            result = evaluate_screening(remote, summary, screening)
+            detail = (f"{len(summary.runs):4d} courses "
+                      f"({summary.hr_coverage:4.0%} FC), "
+                      f"{summary.span_days:5d} jours")
+            return result.passed, detail
 
     downloaded = eligible = examined = 0
+    retenus: list[str] = []
     for remote in client.list_athletes(limit=args.n):
         if remote.size_mb > args.max_size:
             continue
@@ -816,7 +922,7 @@ def cmd_fetch_athletes(args, cfg: Config) -> int:
             break
         try:
             path = client.fetch_athlete(remote)
-            frames = summary_to_frames(read_summary(path))
+            keeps, detail = judge(remote, read_summary(path))
         except Exception as exc:
             # Une archive illisible est tracee et sautee : ne pas laisser un
             # fichier bancal interrompre une passe de plusieurs centaines.
@@ -825,20 +931,23 @@ def cmd_fetch_athletes(args, cfg: Config) -> int:
 
         examined += 1
         downloaded += 0 if was_cached else 1
-        if frames is None:
-            continue
-        keeps = (len(frames.power) >= criteria.min_power_observations
-                 and frames.span_days >= criteria.min_span_days)
         if keeps:
             eligible += 1
-            print(f"  RETENU  {remote.uuid[:8]}  {len(frames.power):4d} puissances, "
-                  f"{frames.span_days:5d} jours", flush=True)
+            retenus.append(remote.uuid)
+            print(f"  RETENU  {remote.uuid[:8]}  {detail}", flush=True)
+            if args.keep and eligible >= args.keep:
+                break
 
     cached_after = len(list(client.cache_dir.glob("*.zip")))
     print(f"\n{examined} archive(s) examinee(s), {downloaded} telechargee(s), "
-          f"{eligible} eligible(s) a la cohorte.")
+          f"{eligible} retenue(s).")
     print(f"Cache : {cached_before} -> {cached_after} archives.")
-    print("\nRelancer `cli cohort` puis `cli pool` pour en tirer parti.")
+    if args.critere == "velo":
+        print("\nRelancer `cli cohort` puis `cli pool` pour en tirer parti.")
+    elif retenus:
+        print(f"\nAjouter l'elu a {cfg.data_source.manifest}, puis `cli ingest` :")
+        for uuid in retenus:
+            print(f"  {uuid}")
     return 0
 
 

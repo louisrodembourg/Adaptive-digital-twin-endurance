@@ -153,7 +153,8 @@ def _locate_archive(client: OpenDataClient, uuid: str, cfg: Config) -> Path:
     if entry is None:
         raise OpenDataError(
             f"Athlete {uuid} absent du cache et du manifeste. L'ajouter a "
-            f"{cfg.data_source.manifest} ou lancer `cli screen-athletes`."
+            f"{cfg.data_source.manifest} ou lancer "
+            "`cli fetch-athletes --critere course`."
         )
     remote = RemoteAthlete(
         file_id=entry["file_id"], name=f"{uuid}.zip",

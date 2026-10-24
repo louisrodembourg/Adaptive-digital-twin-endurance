@@ -41,7 +41,8 @@ flowchart TB
         direction LR
         LOAD["load_model.py<br/><i>CTL · ATL · fraîcheur<br/>courbes par discipline</i>"]
         BAYES["bayesian_model.py<br/><i>PyMC · convolution</i>"]
-        LOAD --> BAYES
+        HIER["hierarchical.py<br/><i>mise en commun · 62 athlètes</i>"]
+        LOAD --> BAYES --> HIER
     end
 
     subgraph E["Évaluation"]
@@ -49,11 +50,12 @@ flowchart TB
         BASE["baselines.py<br/><i>déclarées d'avance</i>"]
         FND["foundation.py<br/><i>Chronos-2 · TTM<br/>ablation de covariable</i>"]
         SENS["sensitivity.py<br/><i>plancher de détectabilité</i>"]
-        COH["cohort.py<br/><i>réplication · 13 athlètes</i>"]
+        COH["cohort.py<br/><i>réplication · 61 athlètes</i>"]
         VALID["validation.py<br/><i>blocs · horizon 28 j · par durée</i>"]
         REPORT["report.py<br/><i>bootstrap apparié par blocs</i>"]
         BASE --> VALID --> REPORT
         FND --> VALID
+        RULES["plan_rules.py<br/><i>bornes du plan · 6768 semaines</i>"]
         REPORT --> SENS
         REPORT --> COH
     end
@@ -65,9 +67,10 @@ flowchart TB
         OPT["optimizer.py<br/><i>CP-SAT · charge minimale<br/>suffisante</i>"]
         SAFE --> OPT
         DOSE --> OPT
+        RULES -.->|"borne soutenue ou non"| SAFE
     end
 
-    UI["app/main_dashboard.py<br/><i>Streamlit · 4 pages</i>"]
+    UI["app/main_dashboard.py<br/><i>Streamlit · 5 pages</i>"]
 
     OSF --> A --> P --> STORE
     STORE --> ENV --> E
@@ -81,7 +84,7 @@ flowchart TB
 
     classDef result fill:#16324f,stroke:#4c8bf5,stroke-width:2px,color:#fff
     classDef guard fill:#4a3620,stroke:#e0a355,stroke-width:2px,color:#fff
-    class REPORT,BAYES,FND,SENS,COH result
+    class REPORT,BAYES,FND,SENS,COH,HIER,RULES result
     class PROV,TB guard
 ```
 
@@ -92,13 +95,15 @@ flowchart TB
 ```bash
 pip install -e ".[dev]"
 
-python -m src.cli screen-athletes --n 200   # trouver un athlète exploitable
+python -m src.cli fetch-athletes --critere course --keep 3   # trouver un sujet
 python -m src.cli ingest                    # construire les trois artefacts
 python -m src.cli calibrate                 # reporter les estimations
 python -m src.cli state                     # résumer ce qui existe
 python -m src.cli evaluate                  # cinq protocoles + planchers
 python -m src.cli cohort                    # répliquer sur le cache d'athlètes
 python -m src.cli plan                      # proposer une semaine, et ce qu'elle vaut
+python -m src.cli validate-plan             # confronter ses bornes aux données
+python -m src.cli pool                      # mise en commun hiérarchique (~2 h 30)
 
 streamlit run app/main_dashboard.py
 pytest                                      # hors ligne par défaut

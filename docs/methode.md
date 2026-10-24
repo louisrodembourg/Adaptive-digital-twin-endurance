@@ -218,6 +218,20 @@ documentées. Le détail est dans [`AGENTS.md`](../AGENTS.md).
   bénéfice ne l'est pas. Et `WeeklyPlan.notes` publie ce que le solveur a dû
   abandonner — un plan dégradé qui ne s'annonce pas se lit comme un plan
   optimal.
+- **Une borne de sécurité se mesure aussi.** `cli validate-plan` confronte les
+  bornes du planificateur à 6768 semaines réelles de 66 athlètes. Le plancher
+  de retention en sort **soutenu**, le plafond d'ACWR et celui des jours
+  consécutifs **indéterminables** à 0,20 σ près. Toute borne est jugée sur
+  deux statistiques — le meilleur effort et l'effort **médian**, insensible au
+  nombre de tirages — et sur deux régimes, dont un qui exige un entraînement
+  régulier avant la semaine jugée. Sans ces quatre lignes, le protocole naïf
+  annonçait que respecter le plafond d'ACWR coûtait 0,333 σ à p < 0,0001 :
+  un artefact d'échantillonnage additionné d'un biais de sélection.
+- **Un cas isolé se juge contre un taux de base.** Les cinq athlètes chez qui
+  la charge dégrade la prévision ont été instruits un par un, et chaque
+  statistique d'artefact comparée à sa distribution chez les 23 athlètes
+  détectés. Sans groupe de comparaison, n'importe quelle valeur a l'air
+  suspecte — quatre des cinq restent dans l'étendue des détectés.
 - **Les tests n'écrivent jamais dans `data/`** ; une fixture le vérifie après
   chaque test. Le module de sensibilité ne déroge pas : l'enveloppe perturbée
   n'existe qu'en mémoire et l'interface ne rend que des statistiques, jamais

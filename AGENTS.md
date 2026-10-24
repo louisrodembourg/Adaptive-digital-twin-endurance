@@ -121,6 +121,36 @@ presenter une absence de mesure comme une absence d'effet est l'erreur que ce
 depot s'emploie a ne pas commettre. Aucun des verdicts n'autorise a maximiser
 une performance predite.
 
+**Une borne de securite se mesure, et trois confonds l'attendent.**
+`cli validate-plan` confronte les bornes du planificateur a 6768 semaines
+reelles de 66 athletes : respect contre violation A L'INTERIEUR de chaque
+athlete, puis test du signe. Le plancher de retention (ACWR >= 0,8) en sort
+SOUTENU — +0,051 sigma, 37/55, p = 0,0145, detecte sans injection. Le plafond
+d'ACWR et celui des jours consecutifs en sortent INDETERMINABLES, plancher
+0,20 sigma. Trois pieges s'empilaient sur le chemin, et le protocole naif
+annoncait que respecter le plafond d'ACWR COUTAIT 0,333 sigma a p < 0,0001 :
+l'enveloppe, maximum glissant, a une variation mediane nulle a 28 jours ; un
+maximum glissant qui regarde en arriere englobe la semaine qu'on juge, donc
+l'effort dur de cette semaine entre dans sa propre issue ; et un maximum sur
+plus de tirages est plus grand, les semaines a ACWR eleve etant suivies de
+5,2 sorties de plus. Toute regle est donc jugee sur DEUX statistiques — le
+meilleur effort et l'effort MEDIAN, insensible au nombre de tirages — et sur
+DEUX regimes, dont un qui exige un entrainement regulier AVANT la semaine
+jugee : un ACWR eleve est le plus souvent une reprise apres coupure, dont la
+fenetre de reference est deprimee. Une regle qui ne tient que sur une des
+quatre lignes ne tient pas.
+
+**Un cas isole se juge contre un taux de base.** Cinq athletes sur
+soixante-et-un voient la charge degrader leur prevision. Aucun artefact n'y a
+ete etabli : trous de donnees, ruptures de niveau et ruptures d'echelle ont ete
+compares a la DISTRIBUTION de la meme statistique chez les 23 detectes, et
+quatre des cinq restent dans l'etendue. Sans groupe de comparaison, n'importe
+quelle valeur a l'air suspecte. L'hypothese mecaniste la plus naturelle — une
+charge qui tend fait extrapoler le modele vers le haut — est REFUTEE : le biais
+median vaut -0,045 sigma, 27 athletes sur 61 sont surestimes, et
+rho(biais, gain) = -0,018 sur 61 sujets. Ce qui gouverne le score est
+l'amplitude de l'erreur, pas son signe.
+
 **Un plan degrade ne se lit pas comme un plan optimal.** `optimize_week`
 retombait silencieusement sur l'heuristique des qu'une contrainte rendait le
 probleme infaisable. `WeeklyPlan.notes` porte desormais ce qui n'a pas ete
@@ -167,7 +197,8 @@ src/layer_c_planner/     contraintes de securite, optimiseur, parsing LLM,
                          verdict de dose-reponse par athlete
 src/pipeline/            orchestrateur et provenance
 src/evaluation/          metriques, references, validation, rapport,
-                         modeles de fondation, sensibilite, cohorte, maturite
+                         modeles de fondation, sensibilite, cohorte, maturite,
+                         confrontation des regles du plan aux donnees
 app/                     tableau de bord Streamlit
 ```
 
@@ -179,7 +210,9 @@ python -m src.cli ingest        # construire les artefacts
 python -m src.cli calibrate     # reporter les estimations dans params.yaml
 python -m src.cli evaluate      # cinq protocoles, planchers, provenance
 python -m src.cli cohort        # replication sur le cache d'athletes
+python -m src.cli fetch-athletes --critere velo|course   # elargir le cache
 python -m src.cli plan          # semaine proposee, et ce qu'elle ne promet pas
+python -m src.cli validate-plan # ce que les bornes du plan valent face aux donnees
 python -m src.cli pool          # ajustement hierarchique (lent : des dizaines de minutes)
 pytest                          # hors ligne par defaut
 

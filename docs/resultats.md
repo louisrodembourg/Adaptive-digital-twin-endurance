@@ -547,6 +547,95 @@ projet.
 
 ---
 
+## Les cinq athlètes chez qui la charge nuit
+
+C'est le résultat le plus inattendu de la réplication : chez cinq athlètes sur
+soixante-et-un, l'intervalle apparié exclut zéro **contre** la charge — le
+modèle de Banister y prédit moins bien que « prédire la moyenne ». Un artefact
+non instruit à cet endroit fausserait la lecture de tout le reste, donc les
+cinq cas ont été ouverts un par un.
+
+| athlète | gain | IC | puissances | jours | plis |
+|---|---:|---|---:|---:|---:|
+| `a49a2a94` | −0,703 | [−1,404 · −0,210] | 275 | 501 | 12 |
+| `0031326c` | −0,428 | [−1,150 · −0,018] | 263 | 490 | 11 |
+| `2d6239bd` | −0,419 | [−0,849 · −0,048] | 178 | 725 | 18 |
+| `7b8034de` | −0,250 | [−0,500 · −0,042] | 1090 | 653 | 17 |
+| `ae4b2ab7` | −0,066 | [−0,216 · −0,012] | 276 | 1662 | 47 |
+
+### Aucune signature d'artefact
+
+Trois hypothèses d'artefact ont été testées contre le **taux de base** des 23
+athlètes détectés — sans groupe de comparaison, n'importe quelle valeur a l'air
+suspecte.
+
+**Trou de données :** écart médian entre observations de 1 à 3 jours, trou
+maximal de 17 à 127 jours, contre 1 jour et 56 jours en médiane chez les
+détectés. Rien d'anormal.
+
+**Changement de capteur, par rupture de niveau.** On cherche la coupure qui
+maximise l'écart de moyenne entre les deux côtés de la série de puissance.
+Quatre des cinq restent sous le 9ᵉ décile des détectés (1,28 σ) ; `ae4b2ab7`
+sort à 1,54 σ, au-dessus de ce décile mais **sous le maximum des détectés**
+(1,68 σ). Suspect, pas concluant.
+
+**Changement d'échelle, par rapport des écarts-types de part et d'autre de la
+coupure.** `2d6239bd` sort à 0,55, juste sous le minimum des détectés (0,59) :
+sa puissance perd la moitié de sa dispersion en milieu de série, ce qui est la
+signature d'un changement d'home-trainer. Les résumés publics ne portent pas le
+matériel, donc cela reste une hypothèse non vérifiable à partir de ces données.
+
+### L'hypothèse mécaniste que j'avais, et sa réfutation
+
+Les cinq négatifs se distinguent nettement sur un point : **leur charge monte
+beaucoup plus fort** — +18,6 TRIMP/an contre +4,2 chez les détectés. D'où une
+hypothèse plausible : si la charge cumulée tend fortement, la convolution tend
+aussi, le modèle extrapole la performance vers le haut hors échantillon, et
+dépasser la cible est pire que prédire la moyenne.
+
+Elle est fausse. Mesuré sur les 61 athlètes, **le modèle ne surestime pas** :
+biais médian −0,045 σ, 27 athlètes surestimés sur 61 — l'erreur est
+symétrique. Et le biais ne dit rien du score : ρ(biais, gain) = **−0,018** sur
+61 sujets, soit un nul bien alimenté, pas une absence de puissance.
+
+Ce qui gouverne le score est l'**amplitude** de l'erreur, pas son signe :
+ρ(erreur absolue, gain) = −0,720. Les cinq négatifs ne se trompent pas de
+direction, ils se trompent plus — 1,045 σ d'erreur absolue contre 0,631 chez
+les détectés. C'est une bonne nouvelle pour le planificateur : un modèle dont
+les erreurs sont symétriques ne promet pas systématiquement trop.
+
+### Les deux écarts qui restent sont juste sous le plancher
+
+Les deux différences observées — pente de charge et erreur absolue — vont dans
+le sens de l'explication, et aucune des deux n'est démontrable à cinq sujets.
+Test de permutation, 20 000 tirages, médiane des cinq contre celle des 56
+autres :
+
+| grandeur | écart observé | p | écart détectable à 5 % |
+|---|---:|---:|---:|
+| pente de charge (TRIMP/an) | +14,0 | 0,074 | **+16,9** |
+| erreur absolue (σ) | +0,249 | 0,070 | **+0,267** |
+| biais signé (σ) | −0,086 | 0,761 | +0,577 |
+
+Les deux premiers écarts sont réels et **plus petits que ce que ce protocole
+sait voir**. Il manquait environ 20 % d'amplitude, ou des sujets. C'est la
+forme exacte du résultat que le plancher de détectabilité existe pour produire
+— et c'est la troisième fois dans ce dépôt qu'un constat négatif est en réalité
+un constat sous-dimensionné.
+
+### Ce qu'on peut en dire
+
+**Aucun artefact établi, aucun mécanisme établi.** Un cas (`2d6239bd`) porte
+une rupture d'échelle compatible avec un changement de matériel, un autre
+(`ae4b2ab7`) une rupture de niveau à la limite du taux de base ; les trois
+autres ressemblent aux athlètes détectés sur tout ce qui est mesurable.
+L'hétérogénéité bidirectionnelle n'est donc pas un défaut de mesure
+identifiable, et le planificateur garde raison de ne rien promettre à un
+athlète dont la dose-réponse n'est pas détectée — y compris quand elle est
+détectée dans le mauvais sens.
+
+---
+
 ## Ce que la mise en commun des athlètes ajoute
 
 Rejouer le protocole athlète par athlète compte des verdicts : vingt-trois
@@ -854,3 +943,102 @@ inactive est pire qu'une borne absente.
 python -m src.cli plan                              # charge minimale suffisante
 python -m src.cli plan --objective max_specificity  # comportement historique
 ```
+
+---
+
+## Les règles du planificateur, confrontées aux données
+
+Le planificateur imposait trois bornes — ACWR sous 1,5, un plancher de
+retention, au plus trois jours d'entraînement de suite — qui venaient de la
+littérature et de l'usage. C'est une raison de les écrire, pas une mesure.
+Aucune n'avait jamais rencontré de données, alors que le dépôt exige une
+validation hors échantillon de tout le reste.
+
+`python -m src.cli validate-plan` — **66 athlètes, 6768 semaines
+calendaires.** Pour chaque semaine : sa charge, son ACWR en fin de semaine, sa
+plus longue série de jours consécutifs, et son issue — la variation du meilleur
+effort entre `[fin−42 ; fin−7]` et `[fin+7 ; fin+42]`, réduite par l'écart-type
+de la puissance de cet athlète. La comparaison respect / violation se fait **à
+l'intérieur de chaque athlète**, puis s'agrège par un test du signe, comme la
+cohorte.
+
+### Le verdict
+
+| borne | régime | statistique | athlètes | écart | en faveur | p | verdict |
+|---|---|---|---:|---:|---:|---:|---|
+| ACWR ≤ 1,5 | toutes semaines | meilleur | 55 | −0,333 | 7/55 | <0,0001 | contredite |
+| ACWR ≤ 1,5 | toutes semaines | médian | 55 | −0,104 | 18/55 | 0,0145 | contredite |
+| **ACWR ≤ 1,5** | **référence ≥ 15 obs** | **meilleur** | 14 | −0,014 | 8/14 | 0,791 | **indéterminable** |
+| **ACWR ≤ 1,5** | **référence ≥ 15 obs** | **médian** | 14 | −0,042 | 4/14 | 0,180 | **indéterminable** |
+| **ACWR ≥ 0,8** | **référence ≥ 15 obs** | **meilleur** | 55 | **+0,085** | 40/55 | **0,0010** | **soutenue** |
+| **ACWR ≥ 0,8** | **référence ≥ 15 obs** | **médian** | 55 | **+0,051** | 37/55 | **0,0145** | **soutenue** |
+| ≤ 3 jours consécutifs | référence ≥ 15 obs | médian | 37 | −0,013 | 15/37 | 0,324 | indéterminable |
+
+**Le plancher de retention est la seule borne soutenue.** Les semaines dont
+l'ACWR reste au-dessus de 0,8 sont suivies d'un meilleur effort : +0,051 σ sur
+la statistique insensible au nombre de tirages, 37 athlètes sur 55 en faveur,
+p = 0,0145. Elle survit aux deux contrôles et aux deux statistiques, et elle
+est détectée **sans injection**. « Ne pas prescrire le désentraînement » est
+donc une règle mesurée, pas une convention.
+
+**Le plafond d'ACWR n'est ni soutenu ni réfuté**, avec un plancher de
+détectabilité de **0,20 σ** : son effet réel, s'il existe, est plus petit que
+ce que 14 athlètes comparables permettent de voir.
+
+**Le plafond de jours consécutifs ne conclut pas** (p = 0,324). La ventilation
+est pourtant suggestive : l'issue monte de 0 à 3 jours consécutifs
+(−0,025 → +0,091 σ) puis retombe à partir de 4 (−0,005). Le seuil de 3 est
+donc posé exactement au sommet — mais la contrainte « ≤ 3 » mélange 0, 1, 2 et
+3 jours, ce qui dilue le gain qu'elle devrait capter. C'est un défaut de
+formulation de la contrainte, pas du seuil.
+
+### Comment j'ai failli publier la réfutation d'une règle de sécurité
+
+Les deux premières lignes du tableau sont à lire comme un avertissement. Le
+protocole naïf dit que **respecter la borne haute d'ACWR coûte 0,333 σ**, avec
+7 athlètes sur 55 en faveur et p < 0,0001 — un résultat massif, net, et faux.
+Trois confonds s'y empilaient, et chacun a demandé d'être trouvé avant d'être
+corrigé.
+
+**L'enveloppe ne peut pas servir d'issue.** Premier essai : variation de
+l'enveloppe sur 28 jours. L'enveloppe est un maximum glissant sur 42 jours,
+donc elle ne bouge que par paliers, et sa variation médiane valait **exactement
+zéro chez les soixante-six athlètes**. Le test du signe tournait sur des
+asymétries de bruit.
+
+**La semaine jugée contaminait les deux bornes de la différence.** Un maximum
+glissant qui regarde 42 jours en arrière englobe la semaine qu'on évalue :
+l'effort dur de cette semaine *est* une observation de performance. D'où un
+tampon de 7 jours de part et d'autre, qui exclut la semaine des deux fenêtres.
+
+**Un maximum sur plus de tirages est plus grand.** Les semaines à ACWR élevé
+sont suivies de plus de sorties : dans la tranche au-delà de 2,0, la fenêtre
+d'issue compte **5,2 observations de plus** que celle de référence. Le maximum
+monte sans qu'aucune performance ait progressé. Chaque borne est donc jugée
+aussi sur l'effort **médian** de la fenêtre, insensible au nombre de tirages —
+et ce seul contrôle divise l'effet par trois, de −0,333 à −0,104.
+
+**Et le dernier confond ne se contrôle pas, il s'exclut.** Un ACWR élevé
+signifie souvent que la charge chronique était basse : l'athlète revenait d'un
+arrêt. La fenêtre de référence est alors elle-même déprimée, et la
+« progression » mesurée est un retour à la normale. Les chiffres le disent sans
+ambiguïté — la tranche au-delà de 2,0 ne compte que **8,1 observations dans la
+fenêtre de référence contre 13,3 après**. En exigeant 15 observations avant la
+semaine jugée, donc un entraînement régulier, l'écart tombe à **−0,042 et le
+test ne conclut plus**. Le gradient par tranche s'aplatit sur toute l'étendue
+de l'ACWR : −0,01 σ sous 0,8, +0,10 au-delà de 2,0.
+
+Publier la première version aurait signifié démonter une borne de sécurité sur
+un artefact d'échantillonnage additionné d'un biais de sélection. Le prix du
+contrôle est visible : on passe de 55 athlètes comparables à 14, et le plancher
+monte à 0,20 σ. C'est le bon prix.
+
+### Ce que ce protocole ne fait pas
+
+Il ne reconstruit pas les **types de séances** — les résumés publics ne les
+portent pas — donc les plafonds par type ne sont pas testables ici. Il
+n'établit **aucune causalité** : on compare les semaines d'un même athlète, pas
+des bras tirés au sort. Et le plancher de retention du planificateur porte sur
+80 % de la charge d'une semaine de référence, quantité qui n'existe pas dans un
+historique observé ; `ACWR ≥ 0,8` en est l'analogue le plus proche, et c'est
+une approximation déclarée, pas la règle elle-même.

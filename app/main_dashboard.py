@@ -32,8 +32,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.cli import (
     ABLATION_FILE,
     COHORT_FILE,
+    DURATION_PAIRS_FILE,
     DURATIONS_FILE,
     FLOORS_FILE,
+    PLAN_RULES_FILE,
     POOLING_EFFECTS_FILE,
     POOLING_FILE,
     RESULTS_FILE,
@@ -93,7 +95,9 @@ def load_measurements() -> dict[str, pd.DataFrame | None]:
     names = {
         "resultats": RESULTS_FILE, "ablation": ABLATION_FILE,
         "durees": DURATIONS_FILE, "planchers": FLOORS_FILE,
+        "paires_durees": DURATION_PAIRS_FILE,
         "cohorte": COHORT_FILE, "pooling": POOLING_FILE,
+        "regles": PLAN_RULES_FILE,
         "effets": POOLING_EFFECTS_FILE,
     }
     out: dict[str, pd.DataFrame | None] = {}
@@ -104,6 +108,19 @@ def load_measurements() -> dict[str, pd.DataFrame | None]:
         except Exception:
             out[key] = None
     return out
+
+
+def _cibles(table: pd.DataFrame) -> list[str]:
+    """
+    Les cibles presentes dans un artefact, ou une seule anonyme.
+
+    Les artefacts produits avant que `cli evaluate` marque ses cibles n'ont
+    pas de colonne `cible`. Rendre `[""]` dans ce cas laisse le tableau de
+    bord les afficher sans titre plutot que de planter sur un ancien fichier.
+    """
+    if "cible" not in table.columns:
+        return [""]
+    return list(dict.fromkeys(table["cible"].astype(str)))
 
 
 def _missing(label: str, command: str) -> None:
@@ -120,7 +137,8 @@ def empty_state() -> None:
         "aucune. Pour le remplir :"
     )
     st.code(
-        "python -m src.cli screen-athletes --n 200   # choisir un athlete\n"
+        "python -m src.cli fetch-athletes --critere course --keep 3"
+        "   # choisir un athlete\n"
         "python -m src.cli ingest                    # construire les artefacts\n"
         "python -m src.cli calibrate                 # reporter les estimations",
         language="bash",
@@ -442,9 +460,10 @@ elif page == "Mesures":
         "preuve d'absence — et les deux sont distingues ici."
     )
     m = load_measurements()
-    t_mat, t_disc, t_duree, t_plancher, t_cohorte, t_pool = st.tabs(
+    (t_mat, t_disc, t_duree, t_plancher, t_cohorte, t_pool,
+     t_regles) = st.tabs(
         ["Maturite", "Appariement", "Par duree", "Plancher", "Cohorte",
-         "Mise en commun"])
+         "Mise en commun", "Regles du plan"])
 
     # -- maturite ---------------------------------------------------------
     with t_mat:
@@ -513,14 +532,23 @@ elif page == "Mesures":
             )
         if ablation is not None and not ablation.empty:
             st.markdown("**Comparaisons appariees** — c'est l'intervalle qui decide.")
-            st.dataframe(
-                ablation[["variante", "reference", "skill", "ci_low", "ci_high",
-                          "p_a_better"]].rename(columns={
-                    "skill": "gain", "ci_low": "IC bas", "ci_high": "IC haut",
-                    "p_a_better": "P(gain)"}).style.format({
-                        "gain": "{:+.4f}", "IC bas": "{:+.4f}",
-                        "IC haut": "{:+.4f}", "P(gain)": "{:.3f}"}),
-                width="stretch", hide_index=True)
+            # Les deux cibles sont affichees cote a cote, et non derriere un
+            # selecteur : la cible velo porte les seuls gains du depot dont
+            # l'intervalle exclut zero, et la cible course le resultat nul le
+            # plus cite. Cacher l'une des deux fausse la lecture de l'autre.
+            for cible in _cibles(ablation):
+                vue_c = (ablation[ablation["cible"] == cible]
+                         if "cible" in ablation.columns else ablation)
+                if cible:
+                    st.markdown(f"Cible **{cible}**")
+                st.dataframe(
+                    vue_c[["variante", "reference", "skill", "ci_low", "ci_high",
+                           "p_a_better"]].rename(columns={
+                        "skill": "gain", "ci_low": "IC bas", "ci_high": "IC haut",
+                        "p_a_better": "P(gain)"}).style.format({
+                            "gain": "{:+.4f}", "IC bas": "{:+.4f}",
+                            "IC haut": "{:+.4f}", "P(gain)": "{:.3f}"}),
+                    width="stretch", hide_index=True)
 
     # -- par duree d'effort -----------------------------------------------
     with t_duree:
@@ -554,6 +582,21 @@ elif page == "Mesures":
                 st.caption(
                     f":grey[{int(ligne['duration_s'])} s ecartee — "
                     f"{int(ligne['n_obs'])} observations, trop peu pour un R².]")
+            paires = m.get("paires_durees")
+            if paires is not None and not paires.empty:
+                st.markdown(
+                    "**Charge specifique contre persistance, duree par duree** "
+                    "— un ecart de R² lu sur la courbe ne dit pas s'il depasse "
+                    "le bruit ; l'intervalle, lui, le dit.")
+                st.dataframe(
+                    paires[["duration_s", "skill", "ci_low", "ci_high",
+                            "p_a_better"]].rename(columns={
+                        "duration_s": "duree (s)", "skill": "gain",
+                        "ci_low": "IC bas", "ci_high": "IC haut",
+                        "p_a_better": "P(gain)"}).style.format({
+                            "gain": "{:+.4f}", "IC bas": "{:+.4f}",
+                            "IC haut": "{:+.4f}", "P(gain)": "{:.3f}"}),
+                    width="stretch", hide_index=True)
 
     # -- plancher de detectabilite ----------------------------------------
     with t_plancher:
@@ -562,32 +605,94 @@ elif page == "Mesures":
         if planchers is None:
             _missing("Plancher de detectabilite", "python -m src.cli evaluate")
         else:
-            fig = go.Figure()
-            for reference in dict.fromkeys(planchers["reference"]):
-                serie = planchers[planchers["reference"] == reference]
-                fig.add_trace(go.Scatter(x=serie["delta"], y=serie["skill"],
-                                         name=f"contre {reference}",
-                                         mode="lines+markers"))
-            fig.add_hline(y=0, line_color="#555")
-            fig.update_xaxes(title="effet injecte (ecarts-types d'enveloppe)")
-            st.plotly_chart(_layout(fig, "gain apparie", 380), width="stretch")
-            vus = planchers[planchers["detecte"]]
-            for reference in dict.fromkeys(planchers["reference"]):
-                atteint = vus[vus["reference"] == reference]["delta"]
-                if atteint.empty:
-                    st.markdown(f"Contre **{reference}** : aucun plancher atteint.")
-                elif float(atteint.min()) == 0.0:
-                    st.markdown(f"Contre **{reference}** : effet deja detecte "
-                                "**sans injection** — la charge reelle suffit.")
-                else:
-                    st.markdown(f"Contre **{reference}** : plancher a "
-                                f"**{float(atteint.min()):.2f} ecart-type**.")
+            # Un plancher qualifie un PROTOCOLE, pas un athlete : celui de la
+            # cible course vaut 2 sigma contre la persistance, celui de la
+            # cible velo 1 sigma. Afficher les deux est la seule facon de voir
+            # que la comparaison la plus citee du depot est aussi la moins
+            # puissante.
+            for cible in _cibles(planchers):
+                vue_p = (planchers[planchers["cible"] == cible]
+                         if "cible" in planchers.columns else planchers)
+                if cible:
+                    st.markdown(f"#### Cible {cible}")
+                fig = go.Figure()
+                for reference in dict.fromkeys(vue_p["reference"]):
+                    serie = vue_p[vue_p["reference"] == reference]
+                    fig.add_trace(go.Scatter(x=serie["delta"], y=serie["skill"],
+                                             name=f"contre {reference}",
+                                             mode="lines+markers"))
+                fig.add_hline(y=0, line_color="#555")
+                fig.update_xaxes(title="effet injecte (ecarts-types d'enveloppe)")
+                st.plotly_chart(_layout(fig, "gain apparie", 380),
+                                width="stretch", key=f"plancher-{cible}")
+                vus = vue_p[vue_p["detecte"]]
+                for reference in dict.fromkeys(vue_p["reference"]):
+                    atteint = vus[vus["reference"] == reference]["delta"]
+                    if atteint.empty:
+                        st.markdown(f"Contre **{reference}** : aucun plancher "
+                                    "atteint.")
+                    elif float(atteint.min()) == 0.0:
+                        st.markdown(f"Contre **{reference}** : effet deja "
+                                    "detecte **sans injection** — la charge "
+                                    "reelle suffit.")
+                    else:
+                        st.markdown(f"Contre **{reference}** : plancher a "
+                                    f"**{float(atteint.min()):.2f} ecart-type**.")
             st.caption(
                 "Un effet SYNTHETIQUE d'amplitude connue est ajoute a "
                 "l'enveloppe reelle, puis le protocole est repasse inchange. "
                 "Le plancher est optimiste : le signal injecte a exactement la "
                 "forme que le modele ajuste."
             )
+
+    # -- regles du planificateur ------------------------------------------
+    with t_regles:
+        st.subheader("Ce que les bornes du planificateur valent face aux donnees")
+        regles = m.get("regles")
+        if regles is None:
+            _missing("Validation des bornes du plan",
+                     "python -m src.cli validate-plan")
+        else:
+            st.caption(
+                "Chaque borne est jugee sur DEUX statistiques et DEUX regimes. "
+                "Le meilleur effort croit avec le nombre de sorties, donc une "
+                "borne qui ne tient que sur lui tient sur un artefact ; "
+                "l'effort median y est insensible. Et une semaine a ACWR eleve "
+                "est souvent une reprise apres coupure, dont la fenetre de "
+                "reference est deprimee — d'ou le regime restreint aux semaines "
+                "precedees d'un entrainement regulier."
+            )
+            couleur = {"soutenue": "#2e7d32", "contredite": "#c62828",
+                       "indeterminable": MUTED}
+            fig = go.Figure()
+            for verdict in dict.fromkeys(regles["verdict"]):
+                vue_r = regles[regles["verdict"] == verdict]
+                fig.add_trace(go.Bar(
+                    y=vue_r["regle"] + " · " + vue_r["regime"]
+                    + " · " + vue_r["statistique"],
+                    x=vue_r["ecart_moyen"], name=verdict, orientation="h",
+                    marker_color=couleur.get(verdict, MUTED)))
+            fig.add_vline(x=0, line_color="#555")
+            fig.update_xaxes(title="ecart d'issue respect - violation "
+                                   "(ecarts-types de puissance)")
+            st.plotly_chart(_layout(fig, "", 40 * len(regles) + 120),
+                            width="stretch")
+            st.dataframe(
+                regles[["regle", "regime", "statistique", "athletes",
+                        "ecart_moyen", "en_faveur", "p", "plancher",
+                        "verdict"]].rename(columns={
+                    "ecart_moyen": "ecart", "en_faveur": "en faveur"}).style.format({
+                        "ecart": "{:+.3f}", "p": "{:.4f}",
+                        "plancher": "{:.2f}"}),
+                width="stretch", hide_index=True)
+            contredites = regles[regles["verdict"] == "contredite"]
+            if not contredites.empty:
+                st.warning(
+                    "Borne(s) contredite(s) : "
+                    + ", ".join(dict.fromkeys(contredites["regle"]))
+                    + ". Le planificateur les applique encore — lire la colonne "
+                      "regime avant de conclure."
+                )
 
     # -- cohorte ----------------------------------------------------------
     with t_cohorte:

@@ -480,42 +480,6 @@ def evaluate_athlete(remote: RemoteAthlete, summary: AthleteSummary,
     return ScreeningResult(remote, summary, elevation, reason is None, reason)
 
 
-def screen_athletes(
-    client: OpenDataClient,
-    max_candidates: int = 200,
-    stop_after: int = 3,
-    criteria: ScreeningCriteria | None = None,
-    on_result=None,
-) -> list[ScreeningResult]:
-    """
-    Parcourt le listing et renvoie les athletes retenus.
-
-    S'arrete des que `stop_after` athletes passent les criteres, plutot que
-    d'epuiser `max_candidates` : environ un athlete sur quatre court, donc la
-    boucle se termine en general bien avant la borne.
-    """
-    criteria = criteria or ScreeningCriteria()
-    kept: list[ScreeningResult] = []
-
-    for remote in client.list_athletes(limit=max_candidates):
-        if remote.size_mb > criteria.max_size_mb:
-            continue
-        try:
-            path = client.fetch_athlete(remote)
-            result = evaluate_athlete(remote, read_summary(path), criteria)
-        except (OpenDataError, zipfile.BadZipFile, json.JSONDecodeError) as exc:
-            log.warning("Athlete %s ignore : %s", remote.uuid[:8], exc)
-            continue
-
-        if on_result:
-            on_result(result)
-        if result.passed:
-            kept.append(result)
-            if len(kept) >= stop_after:
-                break
-    return kept
-
-
 def resolve_ride_files(
     summary: AthleteSummary,
     activity_names: list[str],
