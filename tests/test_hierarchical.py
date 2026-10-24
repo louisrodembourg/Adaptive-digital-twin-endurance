@@ -278,3 +278,14 @@ def test_a_matching_trace_is_read_without_complaint():
     effects = per_athlete_effects(trace, data)
     assert list(effects["athlete"]) == ["aaa", "bbb"]
     assert effects["k_net_moyen"].iloc[0] == pytest.approx(0.4)
+
+
+def test_the_compiler_nesting_limit_is_lifted():
+    """
+    Au-dela d'une quarantaine d'athletes, PyTensor fusionne les expressions en
+    une seule expression C que clang refuse : « bracket nesting level exceeded
+    maximum of 256 ». Trouve en lancant l'ajustement sur 62 athletes, apres
+    une heure d'attente. Le module pose le drapeau lui-meme.
+    """
+    pytensor = pytest.importorskip("pytensor")
+    assert "-fbracket-depth=" in pytensor.config.gcc__cxxflags

@@ -57,6 +57,21 @@ from .bayesian_model import HAS_PYMC, load_kernel
 
 if HAS_PYMC:
     import pymc as pm
+    import pytensor
+
+    # PyTensor fusionne les expressions par athlete en une seule expression C,
+    # et clang plafonne l'imbrication de parentheses a 256. Au-dela d'une
+    # quarantaine d'athletes la compilation echoue sur
+    # « bracket nesting level exceeded maximum of 256 », ce qui n'a rien a voir
+    # avec le modele et tout avec le compilateur. Le drapeau se pose ici parce
+    # que c'est le module qui cree le graphe : l'utilisateur n'a pas a
+    # connaitre cette limite, et un echec de compilation apres une heure
+    # d'attente est le pire moment pour l'apprendre.
+    _FLAG = "-fbracket-depth=4096"
+    if _FLAG not in pytensor.config.gcc__cxxflags:
+        pytensor.config.gcc__cxxflags = (
+            f"{pytensor.config.gcc__cxxflags} {_FLAG}".strip()
+        )
 
 #: Un point d'enveloppe tous les quatorze jours. Voir la docstring du module :
 #: l'enveloppe est un maximum glissant sur 42 jours, donc tres redondante au
