@@ -81,13 +81,35 @@ observations est ecartee ET rapportee comme ecartee.
 
 **Un resultat sur un athlete est une anecdote.** `cli cohort` rejoue
 l'experience sur les athletes du cache et rend la DISTRIBUTION des resultats,
-jamais leur moyenne — elle melangerait des historiques tres inegaux. Treize
-athletes ont ainsi montre que l'effet de charge mesure chez l'athlete de
-reference ne se generalise pas : mediane nulle, test du signe a 1,000, mais
-quatre intervalles qui excluent zero en faveur de la charge et aucun contre.
-L'heterogeneite est reelle et non un defaut de mesure — les non detectes sont
-centres sur -0,054, donc nuls, et non positifs-mais-noyes. La domination de la
-persistance, elle, se replique a p = 0,003.
+jamais leur moyenne — elle melangerait des historiques tres inegaux. Sur
+soixante-et-un athletes, l'effet de charge mesure chez l'athlete de reference
+se replique a p = 0,020 : 23 intervalles excluent zero en sa faveur, 33 ne
+concluent pas, et 5 CONTRE — la charge y degrade la prevision. La domination de
+la persistance se replique a p < 0,0001.
+
+**Une conclusion peut etre juste et sous-dimensionnee.** A treize athletes ce
+depot concluait que l'effet ne se generalisait pas (test du signe a 1,000) ; a
+soixante-et-un il se replique. A quatorze athletes la dispersion inter-individus
+sortait a 0,212 [0,000 · 0,393] et l'heterogeneite etait declaree non etablie ;
+a soixante-deux elle vaut 0,205 [+0,131 · +0,278]. Les moyennes n'ont pas bouge,
+les intervalles se sont resserres. Une conclusion negative s'enonce donc avec le
+nombre de sujets qui la porte, et se relit quand ce nombre change.
+
+**La mise en commun ne peut pas voir un athlete qui va contre la population.**
+Le retrait vers la moyenne est ce qui identifie les constantes de temps, et
+c'est aussi ce qui empeche l'ajustement hierarchique de produire un seul gain
+negatif — pas meme chez les cinq athletes ou le protocole hors echantillon en
+montre un. Les deux protocoles s'accordent en rang (correlation +0,406) et pas
+en signe. Un verdict individuel se lit hors echantillon, jamais dans le
+posterieur mis en commun.
+
+**Identifie n'est pas valide.** Partagees sur soixante-deux historiques, tau1 et
+tau2 sortent serrees (70,3 et 29,7 jours) et incompatibles avec la litterature
+(42 et 12), tau2 poussant a 3,5 ecarts-types contre son prior. Un parametre qui
+s'eloigne de son prior QUAND ON AJOUTE DES DONNEES signale un defaut de
+specification, pas une decouverte : l'enveloppe etant un maximum glissant sur
+42 jours, le modele apprend vraisemblablement la fenetre de lissage. Le
+resserrement d'un posterieur ne vaut pas validation.
 
 **Un plan dit ce qu'il n'optimise pas.** Le planificateur cherche la charge
 MINIMALE qui delivre le stimulus demande, et non la maximale que les

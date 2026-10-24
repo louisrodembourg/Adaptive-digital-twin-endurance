@@ -181,19 +181,31 @@ venait de l'athlète de référence du dépôt. Il s'est avéré être l'un des 
 répondeurs sur 61 — réel, mais pas typique.
 
 **Ajuster n'est pas prédire, et j'ai pu le chiffrer.** Un modèle hiérarchique
-sur quatorze athlètes trouve un effet de charge excluant zéro chez **12 d'entre
+sur 62 athlètes trouve un effet de charge excluant zéro chez **61 d'entre
 eux**. Le protocole hors échantillon, sur les mêmes données, n'en trouve que
-**4 sur 13**. Même modèle, mêmes athlètes : il explique le passé chez presque
-tous et n'en prévoit la suite que chez un tiers. C'est la signature du
-surapprentissage, et c'est pourquoi aucun ajustement n'est publié ici sans son
-pendant hors échantillon.
+**23 sur 61**. Même modèle, mêmes athlètes : il explique le passé chez tous
+sauf un et n'en prévoit la suite que chez un peu plus d'un tiers. C'est la
+signature du surapprentissage, et c'est pourquoi aucun ajustement n'est publié
+ici sans son pendant hors échantillon.
 
-**La mise en commun a quand même rendu quelque chose.** Les constantes de temps
-du modèle de Banister ne sont pas identifiables sur un athlète — le postérieur
-ne resserre τ₁ que de 41 % par rapport à son prior. Partagées entre quatorze
-athlètes, elles sortent à 51,7 jours [29,2 · 76,3] et 19,0 [9,9 · 27,9]. Le
-gain ne dépendait d'aucun résultat favorable sur la charge, juste du nombre de
-sujets.
+**Une conclusion peut être juste et sous-dimensionnée.** À quatorze athlètes,
+la dispersion de l'effet entre individus sortait à 0,21 avec un intervalle
+touchant zéro, et j'ai écrit que l'hétérogénéité n'était pas établie. À 62
+athlètes elle vaut 0,205 [+0,131 · +0,278] : la moyenne n'a pas bougé, seul
+l'intervalle s'est resserré. Je ne m'étais pas trompé sur le nombre, mais sur
+ce qu'il permettait d'affirmer — et c'est précisément ce qu'un plancher de
+détectabilité sert à anticiper.
+
+**La mise en commun a rendu ce qu'on lui demandait, et posé un autre problème.**
+Les constantes de temps du modèle de Banister ne sont pas identifiables sur un
+athlète — le postérieur ne resserre τ₁ que de 41 % par rapport à son prior.
+Partagées entre 62 athlètes, elles sortent serrées : 70,3 jours [52,0 · 88,4]
+et 29,7 [23,3 · 37,0]. Sauf que la littérature dit 42 et 12, et que la seconde
+pousse à 3,5 écarts-types contre son prior. Un paramètre qui s'éloigne de son
+prior **quand on ajoute des données** ne se lit pas comme une mesure
+physiologique : l'enveloppe étant un maximum glissant sur 42 jours, le modèle
+apprend probablement en partie la fenêtre de lissage. Identifiées n'est pas
+validé, et seule la première moitié était l'objectif.
 
 **Le code mort mentait.** Trois règles de sécurité existaient sans être
 branchées : le rapport charge aiguë sur charge chronique, un seuil de VFC lu
@@ -210,11 +222,30 @@ gain — même modèle, autre paramétrisation — le ramène à **26 minutes**.
 
 ## Ce que je ferais ensuite
 
-Élargir la cohorte au-delà de quatorze sujets. C'est devenu le facteur
-limitant : le modèle hiérarchique estime la dispersion entre athlètes à
-0,21 avec un intervalle qui touche zéro, donc sur ce nombre de sujets il ne
-peut pas démontrer qu'ils diffèrent. Et « qui répond ? » reste sans réponse,
-pour la même raison.
+**Savoir qui répond.** C'est la seule question ouverte qui changerait ce que
+le système *sait*. Elle était inattaquable à treize athlètes ; à soixante-et-un
+c'est une vraie régression à trois groupes — 23 répondeurs, 33 neutres, 5 chez
+qui la charge dégrade la prévision. Les prédicteurs candidats sont déjà dans
+les données : volume moyen, variabilité de charge, part vélo/course, densité de
+mesure. Le seul élément trouvé pour l'instant est la puissance de mesure
+elle-même (corrélation de rang +0,28 avec la longueur d'historique), et ce
+n'est pas une variable connue à l'inscription.
+
+**Instruire les cinq cas négatifs.** Un athlète dont la charge *dégrade* la
+prévision est soit un artefact — historique court, trou de données, changement
+de capteur — soit un signal qu'un planificateur devrait traiter différemment.
+Quatre des cinq ont un historique court, le cinquième a 1245 jours et
+l'intervalle le plus serré des cinq : celui-là n'est pas du bruit.
+
+**Vérifier si les constantes de temps mesurent la physiologie ou la fenêtre de
+lissage.** Refaire l'ajustement hiérarchique à fenêtre d'enveloppe réduite. Si
+τ₁ et τ₂ suivent la fenêtre, le résultat le plus citable du modèle tombe.
+
+**Valider le planificateur contre ce que les athlètes ont réellement fait.** Il
+propose des semaines et personne n'a mesuré si ses propositions ressemblent à
+celles des athlètes qui progressent. Avec soixante-et-un historiques, c'est
+faisable — et une évaluation hors échantillon d'un planificateur n'existe
+nulle part dans ce dépôt.
 
 ---
 
