@@ -289,3 +289,38 @@ def test_the_compiler_nesting_limit_is_lifted():
     """
     pytensor = pytest.importorskip("pytensor")
     assert "-fbracket-depth=" in pytensor.config.gcc__cxxflags
+
+
+def test_la_mesure_publiee_ecrit_sans_suffixe():
+    from src.cli import DEFAULT_ENVELOPE_WINDOW_DAYS, pooling_suffix
+
+    assert pooling_suffix(DEFAULT_ENVELOPE_WINDOW_DAYS, 0, 62) == ""
+
+
+def test_une_experience_n_ecrase_pas_la_mesure_qu_elle_met_en_doute():
+    """
+    L'ajustement a fenetre reduite existe pour contester les constantes de
+    temps publiees. S'il ecrivait dans les memes fichiers, la comparaison
+    qu'il sert a faire serait detruite par son propre resultat.
+    """
+    from src.cli import DEFAULT_ENVELOPE_WINDOW_DAYS, pooling_suffix
+
+    noms = {
+        pooling_suffix(DEFAULT_ENVELOPE_WINDOW_DAYS, 0, 62),   # mesure publiee
+        pooling_suffix(21, 0, 60),                             # fenetre reduite
+        pooling_suffix(DEFAULT_ENVELOPE_WINDOW_DAYS, 2, 60),   # controle de cohorte
+        pooling_suffix(21, 2, 58),                             # les deux
+    }
+    assert len(noms) == 4
+
+
+def test_une_cohorte_amputee_a_fenetre_standard_ecrit_ailleurs():
+    """
+    Reduire la fenetre ecarte des athletes faute d'observations : le controle
+    qui separe cet effet de celui de la fenetre tourne A fenetre standard, et
+    ne doit donc pas se distinguer par elle.
+    """
+    from src.cli import DEFAULT_ENVELOPE_WINDOW_DAYS, pooling_suffix
+
+    suffixe = pooling_suffix(DEFAULT_ENVELOPE_WINDOW_DAYS, 2, 60)
+    assert suffixe and suffixe == "_n60"

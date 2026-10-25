@@ -265,6 +265,7 @@ DURATIONS_FILE = "evaluation_durations.parquet"
 FLOORS_FILE = "evaluation_detectability.parquet"
 DURATION_PAIRS_FILE = "evaluation_duration_pairs.parquet"
 COHORT_FILE = "cohort_replication.parquet"
+DEFAULT_ENVELOPE_WINDOW_DAYS = 42
 POOLING_FILE = "pooling_summary.parquet"
 POOLING_EFFECTS_FILE = "pooling_effects.parquet"
 PLAN_RULES_FILE = "plan_rules.parquet"
@@ -595,11 +596,17 @@ def build_parser() -> argparse.ArgumentParser:
                     help="chaines en parallele ; 1 par defaut, le parallele plante sur ce graphe")
     po.add_argument("--stride", type=int, default=28,
                     help="un point d'enveloppe tous les N jours")
-    po.add_argument("--fenetre", type=int, default=42,
+    po.add_argument("--fenetre", type=int, default=DEFAULT_ENVELOPE_WINDOW_DAYS,
                     help="fenetre du maximum glissant de l'enveloppe, en jours ; "
                          "une valeur differente de 42 ecrit des artefacts "
                          "distincts et ne remplace pas la mesure publiee")
     po.add_argument("--seed", type=int, default=0)
+    po.add_argument("--exclure", default="",
+                    help="prefixes d'uuid a retirer de la cohorte, separes par "
+                         "des virgules ; sert de controle quand un autre "
+                         "reglage a deja ecarte des athletes et qu'on veut "
+                         "distinguer son effet de celui de la composition de "
+                         "l'echantillon")
     po.add_argument("--progression", action="store_true",
                     help="afficher la barre de progression de PyMC ; sans "
                          "elle un ajustement de plusieurs heures n'emet rien "
@@ -744,6 +751,23 @@ def cmd_plan(args, cfg: Config) -> int:
 
 
 
+def pooling_suffix(window_days: int, n_excluded: int, n_athletes: int) -> str:
+    """
+    Suffixe des artefacts de mise en commun, vide pour la mesure publiee.
+
+    Tout reglage qui s'ecarte du protocole publie doit ecrire AILLEURS. Une
+    fenetre reduite est une experience qui met en doute le resultat publie :
+    si elle l'ecrasait, on perdrait ce qu'on cherche a comparer. Meme regle
+    pour une cohorte amputee, qui sert de controle a cette experience.
+    """
+    parts = ""
+    if window_days != DEFAULT_ENVELOPE_WINDOW_DAYS:
+        parts += f"_f{window_days}"
+    if n_excluded:
+        parts += f"_n{n_athletes}"
+    return parts
+
+
 def cmd_pool(args, cfg: Config) -> int:
     """
     Ajuste le modele hierarchique sur les athletes du cache.
@@ -762,15 +786,27 @@ def cmd_pool(args, cfg: Config) -> int:
         summarise_pooling,
     )
 
-    blocks = []
+    excluded = tuple(p.strip() for p in args.exclure.split(",") if p.strip())
+    blocks, skipped = [], []
     for frames in screen_cache(cfg.paths.cache / "opendata",
                                CohortCriteria(min_folds=0)):
+        if any(frames.uuid.startswith(prefix) for prefix in excluded):
+            skipped.append(frames.uuid[:8])
+            continue
         block = prepare_athlete(frames.uuid, build_daily_load(frames.sessions),
                                 frames.power, stride_days=args.stride,
                                 window_days=args.fenetre)
         if block is not None:
             blocks.append(block)
     data = CohortData(tuple(blocks), stride_days=args.stride)
+    if excluded and len(skipped) != len(excluded):
+        # Une exclusion qui ne retire rien rendrait le controle identique a
+        # l'experience, et son artefact porterait quand meme un nom distinct :
+        # le lecteur croirait comparer deux cohortes.
+        print(f"{len(excluded)} prefixe(s) demande(s), {len(skipped)} "
+              "retire(s) : au moins un ne correspond a aucun athlete du cache.",
+              file=sys.stderr)
+        return 1
     if data.n_athletes == 0:
         print("Aucun athlete exploitable dans le cache.", file=sys.stderr)
         return 1
@@ -780,6 +816,9 @@ def cmd_pool(args, cfg: Config) -> int:
     # — soit quatorze heures lors de l'ajustement a fenetre reduite.
     print(data.describe(), flush=True)
     print(f"Enveloppe : maximum glissant sur {args.fenetre} jours.", flush=True)
+    if skipped:
+        print(f"Athlete(s) retire(s) a la demande : {', '.join(skipped)}.",
+              flush=True)
     print(f"\nEchantillonnage : {args.chains} chaine(s) de {args.tune} + "
           f"{args.draws} iterations, en sequentiel. Comptez des dizaines de "
           "minutes.\n", flush=True)
@@ -823,7 +862,7 @@ def cmd_pool(args, cfg: Config) -> int:
     # l'hypothese est qu'elles apprennent en partie la fenetre de lissage :
     # l'experience qui le verifie doit donc pouvoir tourner sans effacer la
     # mesure publiee, qu'elle est precisement censee mettre en doute.
-    suffix = "" if args.fenetre == 42 else f"_f{args.fenetre}"
+    suffix = pooling_suffix(args.fenetre, len(skipped), data.n_athletes)
     out = cfg.paths.processed / POOLING_FILE.replace(".parquet", f"{suffix}.parquet")
     out_effects = cfg.paths.processed / POOLING_EFFECTS_FILE.replace(
         ".parquet", f"{suffix}.parquet")
