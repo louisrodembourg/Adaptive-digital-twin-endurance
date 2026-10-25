@@ -600,6 +600,10 @@ def build_parser() -> argparse.ArgumentParser:
                          "une valeur differente de 42 ecrit des artefacts "
                          "distincts et ne remplace pas la mesure publiee")
     po.add_argument("--seed", type=int, default=0)
+    po.add_argument("--progression", action="store_true",
+                    help="afficher la barre de progression de PyMC ; sans "
+                         "elle un ajustement de plusieurs heures n'emet rien "
+                         "et devient impossible a distinguer d'un blocage")
     po.set_defaults(func=cmd_pool)
 
     rp = sub.add_parser("responders",
@@ -771,11 +775,14 @@ def cmd_pool(args, cfg: Config) -> int:
         print("Aucun athlete exploitable dans le cache.", file=sys.stderr)
         return 1
 
-    print(data.describe())
-    print(f"Enveloppe : maximum glissant sur {args.fenetre} jours.")
+    # `flush` explicite : redirige vers un fichier, stdout est tamponne par
+    # blocs, et ces lignes restaient invisibles pendant tout l'echantillonnage
+    # — soit quatorze heures lors de l'ajustement a fenetre reduite.
+    print(data.describe(), flush=True)
+    print(f"Enveloppe : maximum glissant sur {args.fenetre} jours.", flush=True)
     print(f"\nEchantillonnage : {args.chains} chaine(s) de {args.tune} + "
           f"{args.draws} iterations, en sequentiel. Comptez des dizaines de "
-          "minutes.\n")
+          "minutes.\n", flush=True)
 
     import pymc as pm
 
@@ -783,7 +790,8 @@ def cmd_pool(args, cfg: Config) -> int:
     with model:
         trace = pm.sample(draws=args.draws, tune=args.tune, chains=args.chains,
                           cores=args.cores, target_accept=0.9,
-                          random_seed=args.seed, progressbar=False)
+                          random_seed=args.seed,
+                          progressbar=args.progression)
 
     summary = summarise_pooling(trace, data)
     effects = per_athlete_effects(trace, data)
