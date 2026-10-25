@@ -601,6 +601,11 @@ def build_parser() -> argparse.ArgumentParser:
                          "une valeur differente de 42 ecrit des artefacts "
                          "distincts et ne remplace pas la mesure publiee")
     po.add_argument("--seed", type=int, default=0)
+    po.add_argument("--decrire", action="store_true",
+                    help="construire la cohorte, la decrire, et s'arreter sans "
+                         "echantillonner ; rend en minutes les chiffres qui "
+                         "caracterisent la cible, la ou l'ajustement demande "
+                         "des heures")
     po.add_argument("--exclure", default="",
                     help="prefixes d'uuid a retirer de la cohorte, separes par "
                          "des virgules ; sert de controle quand un autre "
@@ -819,6 +824,12 @@ def cmd_pool(args, cfg: Config) -> int:
     if skipped:
         print(f"Athlete(s) retire(s) a la demande : {', '.join(skipped)}.",
               flush=True)
+    if args.decrire:
+        # Decrire sans ajuster : la caracterisation de la cible est publiee,
+        # donc elle doit etre reproductible sans payer quatorze heures
+        # d'echantillonnage.
+        return 0
+
     print(f"\nEchantillonnage : {args.chains} chaine(s) de {args.tune} + "
           f"{args.draws} iterations, en sequentiel. Comptez des dizaines de "
           "minutes.\n", flush=True)

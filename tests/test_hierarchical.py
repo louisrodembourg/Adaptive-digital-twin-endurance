@@ -324,3 +324,41 @@ def test_une_cohorte_amputee_a_fenetre_standard_ecrit_ailleurs():
 
     suffixe = pooling_suffix(DEFAULT_ENVELOPE_WINDOW_DAYS, 2, 60)
     assert suffixe and suffixe == "_n60"
+
+
+def test_la_regularite_de_la_cible_est_mesuree_et_mediane():
+    """
+    Deux ajustements a fenetres differentes se comparent parametre par
+    parametre, et la cible elle-meme change entre les deux. Sans cette
+    mesure, on attribue a la physiologie un deplacement que le lissage
+    explique. Mediane et non moyenne : les historiques sont tres inegaux.
+    """
+    lisse = AthleteBlock(uuid="a", trimp=np.ones(100),
+                         obs_days=np.arange(0, 100, 5),
+                         y=np.linspace(-1.5, 1.5, 20))
+    rng = np.random.default_rng(0)
+    rugueux = AthleteBlock(uuid="b", trimp=np.ones(100),
+                           obs_days=np.arange(0, 100, 5),
+                           y=rng.normal(0, 1, 20))
+
+    auto_lisse, pas_lisse = CohortData((lisse,)).target_smoothness()
+    auto_rug, pas_rug = CohortData((rugueux,)).target_smoothness()
+
+    assert auto_lisse > auto_rug
+    assert pas_lisse < pas_rug
+    # Une seule des deux series doit etre lue, pas leur melange.
+    auto_melange, _ = CohortData((lisse, rugueux)).target_smoothness()
+    assert min(auto_lisse, auto_rug) <= auto_melange <= max(auto_lisse, auto_rug)
+
+
+def test_un_athlete_trop_court_ne_fait_pas_echouer_la_regularite():
+    court = AthleteBlock(uuid="a", trimp=np.ones(10),
+                         obs_days=np.array([0, 5]), y=np.array([0.0, 1.0]))
+    auto, pas = CohortData((court,)).target_smoothness()
+    assert np.isnan(auto) and np.isnan(pas)
+
+
+def test_la_description_porte_la_regularite_de_la_cible():
+    texte = CohortData((_block("aaa", seed=0), _block("bbb", seed=1))).describe()
+    assert "autocorrelation de rang 1 mediane" in texte
+    assert "sigma" in texte

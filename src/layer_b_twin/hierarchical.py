@@ -123,9 +123,41 @@ class CohortData:
     def n_points(self) -> int:
         return sum(b.n_points for b in self.blocks)
 
+    def target_smoothness(self) -> tuple[float, float]:
+        """
+        Regularite de la cible : autocorrelation de rang 1 et pas median.
+
+        La fenetre du maximum glissant ne fait pas que lisser : elle fixe
+        combien de la variance de la cible est explicable par quoi que ce
+        soit de regulier. Comparer deux ajustements a fenetres differentes
+        sans cette mesure, c'est attribuer a la physiologie un deplacement
+        des parametres que la cible explique seule. La cible etant
+        centree-reduite par athlete, le pas s'exprime en ecarts-types et les
+        athletes sont comparables.
+
+        Rendue en MEDIANE sur les athletes, jamais en moyenne : les
+        historiques sont tres inegaux.
+        """
+        autocorr, step = [], []
+        for b in self.blocks:
+            y = np.asarray(b.y, dtype=float)
+            if len(y) < 3:
+                continue
+            step.append(float(np.median(np.abs(np.diff(y)))))
+            a, c = y[:-1], y[1:]
+            if np.std(a) > 0 and np.std(c) > 0:
+                autocorr.append(float(np.corrcoef(a, c)[0, 1]))
+        if not step:
+            return (float("nan"), float("nan"))
+        return (float(np.median(autocorr)) if autocorr else float("nan"),
+                float(np.median(step)))
+
     def describe(self) -> str:
+        auto, step = self.target_smoothness()
         lines = [f"{self.n_athletes} athlete(s), {self.n_points} point(s) "
-                 f"d'enveloppe, un tous les {self.stride_days} jours", ""]
+                 f"d'enveloppe, un tous les {self.stride_days} jours",
+                 f"Cible : autocorrelation de rang 1 mediane {auto:+.3f}, "
+                 f"pas median {step:.3f} sigma", ""]
         for b in self.blocks:
             lines.append(f"  {b.uuid[:8]}  {b.n_days:5d} jours  {b.n_points:4d} points")
         return "\n".join(lines)
