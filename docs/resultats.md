@@ -699,17 +699,105 @@ quatorze athlètes l'estimation était compatible avec la littérature (51,7 et
 resserrant. Un paramètre qui lutte contre son prior et s'en éloigne quand on
 ajoute des données ne se lit pas comme une mesure physiologique.
 
-L'explication la plus probable est dans la cible, pas dans les athlètes :
+L'explication la plus probable était dans la cible, pas dans les athlètes :
 **l'enveloppe est un maximum glissant sur 42 jours, lu tous les 28 jours.**
 C'est une série très lissée par construction, et une cible lissée préfère des
-noyaux de convolution lents — le modèle apprend en partie la fenêtre de
-lissage. La vérification à faire est directe : refaire l'ajustement à
-fenêtre d'enveloppe réduite et voir si τ₁ et τ₂ suivent la fenêtre. S'ils la
-suivent, ces constantes mesurent le protocole et non la physiologie, et la
-ligne la plus citable de ce tableau tombe.
+noyaux de convolution lents. Cette hypothèse a été mise à l'épreuve ; la
+section suivante lui donne un chiffre.
 
 Les constantes sont donc **identifiées sans être validées** — deux choses
 différentes, et seule la première était l'objectif annoncé.
+
+### Ce que la fenêtre de lissage explique de ces constantes
+
+Le test est direct : refaire l'ajustement avec une fenêtre d'enveloppe de
+**21 jours** au lieu de 42, tout le reste inchangé, et regarder si les
+constantes de temps suivent la fenêtre. Si elles la suivent, elles mesurent le
+protocole et non la physiologie, et la ligne la plus citable du tableau
+précédent tombe.
+
+Un piège attendait sur le chemin, et il aurait suffi à rendre le résultat
+illisible : `min_periods = 3` s'applique à la fenêtre, donc **la raccourcir
+écarte des jours chez les athlètes aux observations espacées**. Deux athlètes
+et 218 points sortent de l'ajustement à 21 jours. Un τ partagé a dès lors deux
+raisons de bouger — la fenêtre, et la composition de l'échantillon — et aucun
+moyen de les distinguer en comparant deux colonnes. D'où un **troisième
+ajustement de contrôle** : fenêtre 42, cohorte amputée des deux mêmes
+athlètes.
+
+Trois ajustements, mêmes réglages d'échantillonneur (4 chaînes, 400 + 400,
+`target_accept` 0,9, graine 0), **0 divergence et r_hat ≤ 1,01 partout**.
+
+| | mesure publiée | contrôle de composition | fenêtre réduite |
+|---|---|---|---|
+| fenêtre d'enveloppe | 42 j | 42 j | **21 j** |
+| athlètes · points | 62 · 1816 | 60 · 1791 | 60 · 1598 |
+| autocorrélation de rang 1 de la cible | +0,533 | +0,539 | **+0,343** |
+| pas médian de la cible | 0,442 σ | 0,442 σ | **0,628 σ** |
+| **τ₁** | 70,3 [52,0 · 88,4] | 71,7 [53,6 · 91,5] | **61,4 [43,6 · 78,4]** |
+| **τ₂** | 29,7 [23,3 · 37,0] | 29,7 [22,8 · 37,0] | **24,1 [18,7 · 30,3]** |
+| μ net | +0,610 | +0,611 | +0,532 |
+| σ net | 0,205 [+0,131 · +0,278] | 0,202 [+0,134 · +0,282] | 0,177 [+0,106 · +0,262] |
+| μ fatigue | −0,204 | −0,208 | −0,244 |
+| σ fatigue | 0,586 | 0,580 | 0,524 |
+| μ tendance | −0,024 | −0,019 | +0,006 |
+| σ tendance | 0,334 | 0,332 | 0,306 |
+
+**Le contrôle disculpe la composition.** Retirer les deux athlètes à fenêtre
+constante ne déplace rien : τ₁ passe de 70,3 à 71,7, τ₂ de 29,7 à 29,7, μ net
+de +0,610 à +0,611. Les deux athlètes ne pesaient que 25 des 218 points
+manquants — les 193 autres sont le fait de la fenêtre. Tout l'écart restant
+est donc attribuable à la fenêtre, et à elle seule.
+
+**Les deux hypothèses de départ sont fausses.** « Ces constantes sont
+physiologiques » prédisait l'immobilité : τ₁ perd 14,4 % et τ₂ 18,9 %, et une
+constante physiologique ne peut pas sentir un réglage de lissage. « Ces
+constantes sont la fenêtre » prédisait qu'elles la suivent : diviser la fenêtre
+par deux aurait dû mener τ₂ vers 15, il est à 24,1. En élasticité — la variation
+relative de la constante sur celle de la fenêtre, qui vaudrait 0 pour de la
+physiologie pure et 1 pour un pur apprentissage de la fenêtre — **τ₁ sort à
+0,22 et τ₂ à 0,30**. Environ un quart de ces constantes est du protocole.
+
+**Et rien n'indique une réaction propre aux constantes de temps.** Tous les
+paramètres baissent de 8 à 19 % : τ₁ −14,4 %, τ₂ −18,9 %, μ net −12,9 %, σ net
+−12,4 %, σ fatigue −9,7 %, σ tendance −7,8 %. Ce n'est pas la signature d'un
+modèle qui réapprend une fenêtre, c'est celle d'une cible dont la régularité a
+changé : l'autocorrélation de rang 1 tombe de +0,539 à +0,343 et le pas médian
+passe de 0,442 à 0,628 écart-type. La cible étant centrée-réduite par athlète,
+ce n'est pas une affaire d'amplitude mais de régularité — et une cible moins
+régulière laisse moins de variance explicable par quoi que ce soit de lisse,
+donc tous les coefficients se contractent ensemble.
+
+Ce que le changement de protocole **n'emporte pas**, et qui compte davantage
+pour l'usage :
+
+- **σ net exclut zéro dans les trois ajustements** (0,205 · 0,202 · 0,177).
+  L'hétérogénéité inter-individus n'est pas un artefact de la fenêtre.
+- **Le classement des athlètes tient** : les gains individuels corrèlent à
+  **+0,839** (Spearman +0,792) entre le contrôle et la fenêtre réduite.
+- **Aucun gain négatif, dans aucun des trois.** Le retrait vers la moyenne
+  continue d'interdire ce que le protocole hors échantillon montre chez cinq
+  athlètes, et ce n'est pas la fenêtre qui en est responsable.
+
+Verdict : les constantes de temps restent **identifiées sans être validées**,
+et ce n'est plus une conjecture. Un quart environ de leur valeur est du
+protocole ; les trois quarts restants ne sont pas expliqués par cette
+expérience, et rien n'autorise à les citer comme une mesure physiologique.
+L'écart à la littérature (70,3 contre 42, 29,7 contre 12) ne se referme pas en
+corrigeant la fenêtre.
+
+Les deux expériences s'exécutent, et la caractérisation de la cible se
+reproduit en minutes plutôt qu'en heures :
+
+```bash
+python -m src.cli pool --fenetre 21                     # ~14 h 40
+python -m src.cli pool --exclure 6d03803e,9e46e144      # ~2 h 30
+python -m src.cli pool --decrire --fenetre 21           # la cible seule
+```
+
+Les artefacts d'un réglage non publié portent un suffixe — `_f21`, `_n60` —
+parce qu'une expérience qui met en doute une mesure ne doit pas pouvoir
+l'écraser.
 
 ### La charge n'hérite pas d'une tendance partagée
 

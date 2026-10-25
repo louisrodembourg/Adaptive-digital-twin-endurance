@@ -107,6 +107,7 @@ python -m src.cli plan                      # proposer une semaine, et ce qu'ell
 python -m src.cli validate-plan             # confronter ses bornes aux données
 python -m src.cli responders                # qui répond, hors échantillon
 python -m src.cli pool                      # mise en commun hiérarchique (~2 h 30)
+python -m src.cli pool --decrire            # la cible seule, sans échantillonner
 
 streamlit run app/main_dashboard.py
 pytest                                      # hors ligne par défaut

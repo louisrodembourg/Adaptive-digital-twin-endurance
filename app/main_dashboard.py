@@ -100,6 +100,12 @@ def load_measurements() -> dict[str, pd.DataFrame | None]:
         "cohorte": COHORT_FILE, "pooling": POOLING_FILE,
         "regles": PLAN_RULES_FILE, "repondeurs": RESPONDERS_CORR_FILE,
         "effets": POOLING_EFFECTS_FILE,
+        # Les deux experiences qui CONTESTENT l'ajustement publie. Elles
+        # ecrivent a part pour ne pas l'ecraser, donc il faut les relire a
+        # part : sans elles, l'onglet presenterait tau1 = 70,3 comme une
+        # mesure physiologique, ce que la mesure a precisement refute.
+        "pooling_f21": POOLING_FILE.replace(".parquet", "_f21.parquet"),
+        "pooling_n60": POOLING_FILE.replace(".parquet", "_n60.parquet"),
     }
     out: dict[str, pd.DataFrame | None] = {}
     for key, filename in names.items():
@@ -109,6 +115,51 @@ def load_measurements() -> dict[str, pd.DataFrame | None]:
         except Exception:
             out[key] = None
     return out
+
+
+def _fenetre_comparee(publie: pd.DataFrame,
+                      controle: pd.DataFrame | None,
+                      reduit: pd.DataFrame | None) -> None:
+    """
+    Ce que la fenetre de lissage explique des constantes de temps.
+
+    Sans ce bloc, l'onglet afficherait tau1 = 70,3 jours comme une mesure
+    physiologique. L'elasticite mesuree vaut 0,22 : environ un quart de ces
+    constantes vient du protocole, et la cible elle-meme change entre les
+    deux ajustements — l'ecart ne se lit pas sans le controle de composition.
+    """
+    if reduit is None or controle is None:
+        st.info(
+            "Les deux ajustements qui contestent ces constantes n'ont pas "
+            "tourne. `python -m src.cli pool --fenetre 21` les deplace-t-il ? "
+            "`--exclure` dit si c'est la fenetre ou la cohorte."
+        )
+        return
+
+    colonnes = {"publie (f42, 62 ath.)": publie,
+                "controle (f42, 60 ath.)": controle,
+                "fenetre reduite (f21, 60 ath.)": reduit}
+    lignes = []
+    for nom in ("tau1", "tau2", "mu_k_net", "sigma_k_net"):
+        ligne = {"parametre": nom}
+        for etiquette, table in colonnes.items():
+            sel = table.loc[table["parametre"] == nom]
+            ligne[etiquette] = (
+                f"{sel['mean'].iloc[0]:+.3f} "
+                f"[{sel['hdi_3%'].iloc[0]:+.3f} · {sel['hdi_97%'].iloc[0]:+.3f}]"
+                if not sel.empty else "—"
+            )
+        lignes.append(ligne)
+    st.dataframe(pd.DataFrame(lignes), width="stretch", hide_index=True)
+    st.warning(
+        "Fenetre d'enveloppe divisee par deux : tau1 perd 14,4 % et tau2 "
+        "18,9 %, soit une elasticite de 0,22 et 0,30 — zero pour de la "
+        "physiologie pure, un pour un pur apprentissage de la fenetre. Les "
+        "DEUX hypotheses sont fausses, et environ un quart de ces constantes "
+        "est du protocole. La colonne de controle est ce qui le prouve : a "
+        "fenetre constante, retirer les deux athletes que la fenetre reduite "
+        "perd ne deplace rien."
+    )
 
 
 def _cibles(table: pd.DataFrame) -> list[str]:
@@ -797,6 +848,7 @@ elif page == "Mesures":
                 "les rend identifiables, la ou un athlete seul ne resserre son "
                 "prior que de 41 %."
             )
+            _fenetre_comparee(pooling, m.get("pooling_n60"), m.get("pooling_f21"))
         if effets is not None and not effets.empty:
             ordonne = effets.sort_values("k_net_moyen")
             fig = go.Figure()

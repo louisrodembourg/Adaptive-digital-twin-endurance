@@ -107,9 +107,24 @@ posterieur mis en commun.
 tau2 sortent serrees (70,3 et 29,7 jours) et incompatibles avec la litterature
 (42 et 12), tau2 poussant a 3,5 ecarts-types contre son prior. Un parametre qui
 s'eloigne de son prior QUAND ON AJOUTE DES DONNEES signale un defaut de
-specification, pas une decouverte : l'enveloppe etant un maximum glissant sur
-42 jours, le modele apprend vraisemblablement la fenetre de lissage. Le
-resserrement d'un posterieur ne vaut pas validation.
+specification, pas une decouverte. Le resserrement d'un posterieur ne vaut pas
+validation.
+
+**Un parametre se conteste en bougeant le protocole, pas en le commentant.**
+L'hypothese etait que ces constantes apprennent la fenetre de lissage de
+l'enveloppe. Mesure a fenetre 21 au lieu de 42 : tau1 perd 14,4 % et tau2
+18,9 %, soit une elasticite de 0,22 et 0,30 — zero pour de la physiologie pure,
+un pour un pur apprentissage de la fenetre. Les DEUX hypotheses sont donc
+fausses, et environ un quart de ces constantes est du protocole. Trois pieges
+sur ce chemin. `min_periods` s'applique a la fenetre, donc la raccourcir ecarte
+des athletes : un troisieme ajustement de CONTROLE, a fenetre standard et
+cohorte amputee des memes athletes, est ce qui disculpe la composition
+(70,3 -> 71,7). La comparaison porte sur une cible qui a change : son
+autocorrelation de rang 1 tombe de +0,539 a +0,343, `describe` la publie, et
+sans ce chiffre on attribuerait a la physiologie une contraction de TOUS les
+parametres de 8 a 19 %. Enfin un reglage non publie ecrit des artefacts
+suffixes (`_f21`, `_n60`), parce qu'une experience qui met en doute une mesure
+ne doit pas pouvoir l'ecraser.
 
 **« Qui repond ? » se pose hors echantillon.** Chercher parmi douze
 predicteurs le plus correle au gain puis le publier, c'est tester douze
@@ -232,7 +247,10 @@ python -m src.cli fetch-athletes --critere velo|course   # elargir le cache
 python -m src.cli plan          # semaine proposee, et ce qu'elle ne promet pas
 python -m src.cli validate-plan # ce que les bornes du plan valent face aux donnees
 python -m src.cli responders    # qui repond, teste hors echantillon
-python -m src.cli pool          # ajustement hierarchique (lent : des dizaines de minutes)
+python -m src.cli pool          # ajustement hierarchique (lent : des heures)
+python -m src.cli pool --decrire               # la cible seule, en minutes
+python -m src.cli pool --fenetre 21            # contester les constantes de temps
+python -m src.cli pool --exclure UUID,UUID     # controler la composition de la cohorte
 pytest                          # hors ligne par defaut
 
 pip install -e ".[tsfm]"        # torch + Chronos-2 + TTM, optionnels

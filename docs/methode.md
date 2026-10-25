@@ -240,6 +240,21 @@ documentées. Le détail est dans [`AGENTS.md`](../AGENTS.md).
   l'est pas (plancher non atteint à 0,40 σ). Un prédicteur **constant** est
   écarté et rapporté comme écarté : le p permuté d'un NaN valait 0,0000, et ce
   prédicteur dégénéré était le seul déclaré retenu de la première exécution.
+- **Un paramètre se conteste en bougeant le protocole.** Les constantes de
+  temps partagées sortent serrées et incompatibles avec la littérature ;
+  l'hypothèse était qu'elles apprennent la fenêtre de lissage de l'enveloppe.
+  `cli pool --fenetre 21` la met à l'épreuve, et deux garde-fous la rendent
+  lisible. D'abord un **contrôle de composition** : `min_periods` s'applique à
+  la fenêtre, donc la raccourcir écarte deux athlètes, et `--exclure` rejoue
+  l'ajustement à fenêtre standard sur la cohorte amputée — sans lui, le
+  déplacement de τ aurait deux causes mêlées. Ensuite la **caractérisation de
+  la cible**, que `describe` publie à chaque ajustement : son autocorrélation
+  de rang 1 tombe de +0,539 à +0,343, et sans ce chiffre on attribuerait à la
+  physiologie une contraction de **tous** les paramètres de 8 à 19 %. Verdict :
+  élasticité 0,22 pour τ₁ et 0,30 pour τ₂ — ni physiologie pure, ni pur
+  apprentissage de la fenêtre. Un réglage non publié écrit des artefacts
+  suffixés, parce qu'une expérience qui met en doute une mesure ne doit pas
+  pouvoir l'écraser.
 - **Les tests n'écrivent jamais dans `data/`** ; une fixture le vérifie après
   chaque test. Le module de sensibilité ne déroge pas : l'enveloppe perturbée
   n'existe qu'en mémoire et l'interface ne rend que des statistiques, jamais

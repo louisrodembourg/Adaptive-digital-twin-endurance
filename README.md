@@ -213,9 +213,22 @@ Partagées entre 62 athlètes, elles sortent serrées : 70,3 jours [52,0 · 88,4
 et 29,7 [23,3 · 37,0]. Sauf que la littérature dit 42 et 12, et que la seconde
 pousse à 3,5 écarts-types contre son prior. Un paramètre qui s'éloigne de son
 prior **quand on ajoute des données** ne se lit pas comme une mesure
-physiologique : l'enveloppe étant un maximum glissant sur 42 jours, le modèle
-apprend probablement en partie la fenêtre de lissage. Identifiées n'est pas
-validé, et seule la première moitié était l'objectif.
+physiologique. Identifiées n'est pas validé, et seule la première moitié était
+l'objectif.
+
+**Un quart de ces constantes est du protocole, et je ne sais pas d'où vient le
+reste.** L'enveloppe étant un maximum glissant sur 42 jours, l'hypothèse était
+que le modèle apprend la fenêtre de lissage. Réajusté à fenêtre 21, τ₁ perd
+14,4 % et τ₂ 18,9 % — soit une élasticité de 0,22 et 0,30, là où de la
+physiologie pure donnerait 0 et un pur apprentissage de la fenêtre donnerait 1.
+Les deux hypothèses sont donc fausses. Un troisième ajustement de contrôle
+était nécessaire pour l'affirmer : raccourcir la fenêtre écarte deux athlètes
+faute d'observations, et un τ partagé aurait bougé pour deux raisons mêlées. À
+fenêtre constante, retirer ces deux athlètes ne déplace rien (70,3 → 71,7).
+Ce qui bouge, en revanche, c'est toute la ligne de paramètres, de 8 à 19 % —
+la cible est simplement moins régulière à 21 jours, son autocorrélation
+tombant de +0,539 à +0,343. Ce qui survit : σ net exclut zéro dans les trois
+ajustements, et les gains individuels corrèlent à +0,839.
 
 **Deux lignes de code auraient suffi à inventer un résultat.** En cherchant ce
 qui distingue un répondeur, le seul prédicteur que ma première exécution a
@@ -274,9 +287,12 @@ haut) est réfutée : le biais est symétrique sur les 61. Les deux écarts qui
 subsistent — pente de charge et amplitude d'erreur — tombent à p = 0,074 et
 0,070, juste sous ce que cinq sujets permettent de voir.
 
-**Vérifier si les constantes de temps mesurent la physiologie ou la fenêtre de
-lissage.** Refaire l'ajustement hiérarchique à fenêtre d'enveloppe réduite. Si
-τ₁ et τ₂ suivent la fenêtre, le résultat le plus citable du modèle tombe.
+**Trouver d'où vient le reste des constantes de temps.** La fenêtre de lissage
+en explique environ un quart, c'est mesuré ; les trois quarts restants ne le
+sont pas, et l'écart à la littérature ne se referme pas en corrigeant la
+fenêtre. Les pistes qui restent à départager : le pas de 28 jours entre deux
+points d'enveloppe, le `min_periods` qui conditionne ce qui entre dans la
+cible, et la forme même du noyau de convolution.
 
 **Reformuler la contrainte de jours consécutifs.** La mesure ne conclut pas sur
 le plafond à 3 jours, mais sa ventilation est claire : l'issue monte de 0 à 3
