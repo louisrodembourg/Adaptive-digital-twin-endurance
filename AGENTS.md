@@ -1,259 +1,255 @@
-# Conventions de contribution
+# Contribution conventions
 
-## Ce que fait ce projet
+## What this project does
 
-Un jumeau numerique d'entrainement d'endurance, construit sur un jeu de
-donnees public (GoldenCheetah OpenData). Il ingere des seances, en derive une
-charge d'entrainement et une mesure de performance, ajuste un modele
-fitness-fatigue, puis **evalue honnetement si ce modele predit quoi que ce
-soit**.
+A digital twin for endurance training, built on a public dataset
+(GoldenCheetah OpenData). It ingests sessions, derives a training load and a
+performance measure, fits a fitness-fatigue model, then **evaluates honestly
+what that model predicts, for whom, and with what certainty**.
 
-Le dernier point est le coeur du projet, pas une formalite. La reponse
-mesuree est que le modele de Banister n'apporte rien au-dela d'une simple
-persistance sur ces donnees, et le depot est organise pour rendre ce constat
-verifiable plutot que pour le masquer.
+The measured answer: load predicts performance **once it is matched to the
+discipline being measured** — bike load against bike power beats "predict the
+mean" by +0.339 [+0.055 · +0.524] on the reference athlete, and the effect
+replicates across 61 athletes (sign test p = 0.020). It is heterogeneous:
+detected in 23, inconclusive in 33, harmful in 5, with a between-athlete
+dispersion established at 0.205 [+0.131 · +0.278]. Persistence remains
+unbeaten, and the repository says how little power that comparison has. The
+planner is built on this result: it measures the verdict for the athlete at
+hand and never promises more than that verdict allows.
 
-## Regles non negociables
+The evaluation is the core of the project, not a formality. The repository is
+organised to make every claim — positive or null — verifiable rather than to
+dress it up.
 
-**Aucune donnee inventee ne doit pouvoir passer pour mesuree.** Toute seance
-porte une `DataSource` explicite ; `add_session` n'a pas de valeur par
-defaut ; ecrire du synthetique exige `allow_synthetic=True`. Les generateurs
-de donnees vivent dans `tests/fixtures/`, jamais dans `src/`. Cette regle
-existe parce que le tableau de bord a longtemps affiche 84 seances generees
-sous l'etiquette `fit_file`.
+## Non-negotiable rules
 
-**Aucune metrique ne compte des lignes.** Les series ne sont pas garanties a
-1 Hz sans trou. Tout passe par `src/layer_a_signal/timebase.py` et
-s'exprime en secondes reelles.
+**No invented data may pass as measured.** Every session carries an explicit
+`DataSource`; `add_session` has no default value; writing synthetic data
+requires `allow_synthetic=True`. Data generators live in `tests/fixtures/`,
+never in `src/`. This rule exists because the dashboard long displayed 84
+generated sessions under the `fit_file` label.
 
-**Aucune constante physiologique dans le code.** Elles vivent dans
-`config/params.yaml` et sont lues via `src/config.py`. Les valeurs propres a
-un athlete sont `null` tant que `cli calibrate` n'a pas tourne : une erreur
-explicite vaut mieux qu'un nombre fonde sur une supposition.
+**No metric counts rows.** Series are not guaranteed to be 1 Hz without gaps.
+Everything goes through `src/layer_a_signal/timebase.py` and is expressed in
+real seconds.
 
-**Aucune amelioration n'est affirmee sans validation hors echantillon.** Un
-R2 d'ajustement ne prouve rien. Toute variante passe par
-`src/evaluation/`, contre les references declarees dans `baselines.py`. Les
-decoupages respectent l'ordre du temps.
+**No physiological constant in code.** They live in `config/params.yaml` and
+are read through `src/config.py`. Athlete-specific values are `null` until
+`cli calibrate` has run: an explicit error is better than a number founded on a
+guess.
 
-**Ni sans intervalle quand l'ecart est mince.** Deux variantes evaluees sous
-le meme decoupage predisent les memes points : soustraire leurs R2 ne dit pas
-si l'ecart depasse le bruit. `report.paired_table` fait un bootstrap apparie
-par blocs — par plis, pas par jours, les erreurs d'un pli etant autocorrelees.
-Chronos-2 arrive premier de 0,003 de R2 sur la persistance ; l'intervalle dit
-que ce n'est rien, et c'est l'intervalle qui est publie.
+**No improvement is claimed without out-of-sample validation.** An in-sample
+R² proves nothing. Every variant goes through `src/evaluation/`, against the
+baselines declared in `baselines.py`. Splits respect time order.
 
-**Une variante qui n'a rien execute ne publie rien.** `cross_validate` avale
-les exceptions d'un prediteur : une variante cassee ressort en `folds = 0`
-avec des NaN partout, ce qui ressemble a un resultat. `cli evaluate` sort en
-erreur dans ce cas, et avertit quand deux variantes n'ont pas couvert le meme
-nombre de plis — un modele dont la tete est entrainee sur un horizon court
-echoue sur les plis longs et sa ligne porte alors sur moins de points.
+**Nor without an interval when the gap is thin.** Two variants evaluated under
+the same split predict the same points: subtracting their R² does not say
+whether the gap exceeds noise. `report.paired_table` performs a paired block
+bootstrap — by folds, not by days, since a fold's errors are autocorrelated.
+Chronos-2 comes first by 0.003 of R² over persistence; the interval says it is
+nothing, and the interval is what is published.
 
-**Aucune capacite annoncee n'est crue sur parole.** La fiche de TTM annonce
-l'integration de variables exogenes ; en zero-shot son dorsal est independant
-par canal et la prevision ne bouge pas d'un bit quand on remplace les
-covariables. Un test le mesure, et `SPECS` dans `foundation.py` porte ce que
-chaque modele fait reellement — pas ce que sa fiche promet.
+**A variant that ran nothing publishes nothing.** `cross_validate` swallows a
+predictor's exceptions: a broken variant comes out as `folds = 0` with NaNs
+everywhere, which looks like a result. `cli evaluate` exits with an error in
+that case, and warns when two variants did not cover the same number of folds
+— a model whose head is trained on a short horizon fails on long folds and its
+row then covers fewer points.
 
-**Une charge ne s'oppose qu'a une cible de sa discipline.** Le resultat nul le
-plus cite du depot opposait une charge aux deux tiers cycliste a une vitesse
-en course a pied. Apparie correctement — charge velo contre puissance velo —
-le modele de charge bat « predire la moyenne » de +0,339 avec un intervalle
-[+0,055 · +0,524]. Les variantes portent leur discipline dans leur nom, et la
-charge de course sert de controle negatif sur la cible velo : si elle y
-predisait quelque chose, c'est une fuite qu'il faudrait chercher, pas un
-transfert physiologique.
+**No advertised capability is taken on trust.** TTM's model card advertises
+exogenous variable integration; in zero-shot its backbone is
+channel-independent and the forecast does not move by a single bit when the
+covariates are replaced. A test measures it, and `SPECS` in `foundation.py`
+records what each model actually does — not what its card promises.
 
-**Un resultat nul s'accompagne de son plancher.** Affirmer l'absence d'effet
-sans dire quel effet le protocole saurait voir, c'est confondre « on n'a rien
-trouve » avec « il n'y a rien ». `sensitivity.py` injecte dans l'enveloppe
-reelle un effet d'amplitude connue, de la forme que le modele postule, et rend
-le plus petit que l'intervalle apparie distingue du hasard : 2 sigma contre la
-persistance sur la cible course, 1 sigma sur la cible velo. Ce plancher est
-OPTIMISTE, le signal injecte ayant exactement la forme ajustee.
+**Load is only set against a target of its own discipline.** The
+most-cited null result of the repository set a load that was two-thirds
+cycling against a running speed. Correctly matched — bike load against bike
+power — the load model beats "predict the mean" by +0.339 with an interval
+[+0.055 · +0.524]. Variants carry their discipline in their name, and running
+load serves as a negative control on the bike target: if it predicted anything
+there, it would be a leak to look for, not a physiological transfer.
 
-**Un maximum ne se prend pas deux fois.** `perf_index` prenait un maximum sur
-les durees avant que l'enveloppe en reprenne un sur 42 jours, d'ou
-l'autocorrelation a 0,97 qui rend la persistance imbattable par construction.
-Les durees sont publiees une par une, et une duree comptant moins de quarante
-observations est ecartee ET rapportee comme ecartee.
+**A null result comes with its floor.** Asserting the absence of an effect
+without saying what effect the protocol could see confuses "we found nothing"
+with "there is nothing". `sensitivity.py` injects into the real envelope an
+effect of known amplitude, of the shape the model postulates, and returns the
+smallest one the paired interval distinguishes from chance: 2 sigma against
+persistence on the running target, 1 sigma on the bike target. This floor is
+OPTIMISTIC, the injected signal having exactly the fitted shape.
 
-**Un resultat sur un athlete est une anecdote.** `cli cohort` rejoue
-l'experience sur les athletes du cache et rend la DISTRIBUTION des resultats,
-jamais leur moyenne — elle melangerait des historiques tres inegaux. Sur
-soixante-et-un athletes, l'effet de charge mesure chez l'athlete de reference
-se replique a p = 0,020 : 23 intervalles excluent zero en sa faveur, 33 ne
-concluent pas, et 5 CONTRE — la charge y degrade la prevision. La domination de
-la persistance se replique a p < 0,0001.
+**A maximum is not taken twice.** `perf_index` took a maximum over durations
+before the envelope took another over 42 days, hence the 0.97 autocorrelation
+that makes persistence unbeatable by construction. Durations are published one
+by one, and a duration with fewer than forty observations is dropped AND
+reported as dropped.
 
-**Une conclusion peut etre juste et sous-dimensionnee.** A treize athletes ce
-depot concluait que l'effet ne se generalisait pas (test du signe a 1,000) ; a
-soixante-et-un il se replique. A quatorze athletes la dispersion inter-individus
-sortait a 0,212 [0,000 · 0,393] et l'heterogeneite etait declaree non etablie ;
-a soixante-deux elle vaut 0,205 [+0,131 · +0,278]. Les moyennes n'ont pas bouge,
-les intervalles se sont resserres. Une conclusion negative s'enonce donc avec le
-nombre de sujets qui la porte, et se relit quand ce nombre change.
+**A result on one athlete is an anecdote.** `cli cohort` replays the
+experiment on the athletes in the cache and returns the DISTRIBUTION of
+results, never their mean — it would mix very unequal histories. On sixty-one
+athletes, the load effect measured in the reference athlete replicates at
+p = 0.020: 23 intervals exclude zero in its favour, 33 do not conclude, and 5
+AGAINST — load degrades the forecast there. Persistence's dominance replicates
+at p < 0.0001.
 
-**La mise en commun ne peut pas voir un athlete qui va contre la population.**
-Le retrait vers la moyenne est ce qui identifie les constantes de temps, et
-c'est aussi ce qui empeche l'ajustement hierarchique de produire un seul gain
-negatif — pas meme chez les cinq athletes ou le protocole hors echantillon en
-montre un. Les deux protocoles s'accordent en rang (correlation +0,406) et pas
-en signe. Un verdict individuel se lit hors echantillon, jamais dans le
-posterieur mis en commun.
+**A conclusion can be right and underpowered.** At thirteen athletes this
+repository concluded that the effect did not generalise (sign test at 1.000);
+at sixty-one it replicates. At fourteen athletes the between-athlete dispersion
+came out at 0.212 [0.000 · 0.393] and heterogeneity was declared not
+established; at sixty-two it is 0.205 [+0.131 · +0.278]. The means did not
+move, the intervals tightened. A negative conclusion is therefore stated with
+the number of subjects carrying it, and re-read when that number changes.
 
-**Identifie n'est pas valide.** Partagees sur soixante-deux historiques, tau1 et
-tau2 sortent serrees (70,3 et 29,7 jours) et incompatibles avec la litterature
-(42 et 12), tau2 poussant a 3,5 ecarts-types contre son prior. Un parametre qui
-s'eloigne de son prior QUAND ON AJOUTE DES DONNEES signale un defaut de
-specification, pas une decouverte. Le resserrement d'un posterieur ne vaut pas
+**Pooling cannot see an athlete who goes against the population.** Shrinkage
+towards the mean is what identifies the time constants, and it is also what
+prevents the hierarchical fit from producing a single negative gain — not even
+for the five athletes where the out-of-sample protocol shows one. The two
+protocols agree in rank (correlation +0.406) and not in sign. An individual
+verdict is read out of sample, never in the pooled posterior.
+
+**Identified is not validated.** Shared across sixty-two histories, tau1 and
+tau2 come out tight (70.3 and 29.7 days) and incompatible with the literature
+(42 and 12), tau2 pushing 3.5 standard deviations against its prior. A
+parameter that moves away from its prior AS DATA ARE ADDED signals a
+specification defect, not a discovery. A tightening posterior is not
 validation.
 
-**Un parametre se conteste en bougeant le protocole, pas en le commentant.**
-L'hypothese etait que ces constantes apprennent la fenetre de lissage de
-l'enveloppe. Mesure a fenetre 21 au lieu de 42 : tau1 perd 14,4 % et tau2
-18,9 %, soit une elasticite de 0,22 et 0,30 — zero pour de la physiologie pure,
-un pour un pur apprentissage de la fenetre. Les DEUX hypotheses sont donc
-fausses, et environ un quart de ces constantes est du protocole. Trois pieges
-sur ce chemin. `min_periods` s'applique a la fenetre, donc la raccourcir ecarte
-des athletes : un troisieme ajustement de CONTROLE, a fenetre standard et
-cohorte amputee des memes athletes, est ce qui disculpe la composition
-(70,3 -> 71,7). La comparaison porte sur une cible qui a change : son
-autocorrelation de rang 1 tombe de +0,539 a +0,343, `describe` la publie, et
-sans ce chiffre on attribuerait a la physiologie une contraction de TOUS les
-parametres de 8 a 19 %. Enfin un reglage non publie ecrit des artefacts
-suffixes (`_f21`, `_n60`), parce qu'une experience qui met en doute une mesure
-ne doit pas pouvoir l'ecraser.
+**A parameter is challenged by moving the protocol, not by commenting on it.**
+The hypothesis was that these constants learn the envelope's smoothing window.
+Measured at window 21 instead of 42: tau1 loses 14.4 % and tau2 18.9 %, an
+elasticity of 0.22 and 0.30 — zero for pure physiology, one for pure
+window-learning. BOTH hypotheses are therefore false, and about a quarter of
+these constants is protocol. Three traps on that path. `min_periods` applies to
+the window, so shortening it drops athletes: a third CONTROL fit, at standard
+window on the cohort minus the same athletes, is what clears composition
+(70.3 -> 71.7). The comparison bears on a target that changed: its lag-1
+autocorrelation drops from +0.539 to +0.343, `describe` publishes it, and
+without that number one would attribute to physiology a contraction of ALL
+parameters by 8 to 19 %. Finally an unpublished setting writes suffixed
+artifacts (`_f21`, `_n60`), because an experiment that questions a measurement
+must not be able to overwrite it.
 
-**« Qui repond ? » se pose hors echantillon.** Chercher parmi douze
-predicteurs le plus correle au gain puis le publier, c'est tester douze
-hypotheses et n'en declarer qu'une. `cli responders` retire un athlete et
-demande aux autres de le classer, pretraitement recalcule DANS chaque pli — le
-calculer une fois sur tout l'echantillon ferait fuir la cible par le centrage.
-Resultat : aucune famille ne depasse la classe majoritaire. Les deux nuls ne se
-valent pas pour autant, et c'est le plancher qui les separe : la famille connue
-AU PREMIER JOUR detecte un decalage de 0,05 sigma, donc son nul est bien
-alimente et la question du demarrage a froid est FERMEE ; celle derivee de
-l'historique n'atteint pas son plancher a 0,40 sigma, donc son nul n'est pas
-etabli. Deux defauts sont sortis de cette mesure : un predicteur CONSTANT
-(`sexe_feminin`, nul chez les 61 athletes) ressortait significatif parce que le
-p permute d'un NaN vaut 0,0000, et six athletes declaraient un age NEGATIF qui
-portait la correlation de l'age de +0,132 a +0,230. Un predicteur ecarte est
-rapporte comme ecarte, et le prix de Bonferroni se paie sur les predicteurs
-reellement testes.
+**"Who responds?" is asked out of sample.** Searching among twelve predictors
+for the one most correlated with the gain and publishing it means testing
+twelve hypotheses and declaring one. `cli responders` leaves one athlete out
+and asks the others to classify them, preprocessing recomputed WITHIN each fold
+— computing it once on the whole sample would leak the target through
+centring. Result: no family beats the majority class. The two nulls are not
+equal, though, and the floor separates them: the family known ON DAY ONE
+detects a shift of 0.05 sigma, so its null is well powered and the cold-start
+question is CLOSED; the history-derived one does not reach its floor at
+0.40 sigma, so its null is not established. Two defects came out of this
+measurement: a CONSTANT predictor (`sexe_feminin`, zero for all 61 athletes)
+came out significant because the permuted p of a NaN is 0.0000, and six
+athletes declared a NEGATIVE age that pushed the age correlation from +0.132 to
++0.230. A dropped predictor is reported as dropped, and the Bonferroni price is
+paid on the predictors actually tested.
 
-**Un plan dit ce qu'il n'optimise pas.** Le planificateur cherche la charge
-MINIMALE qui delivre le stimulus demande, et non la maximale que les
-contraintes tolerent : sous une dose-reponse inconnue — elle existe chez
-23 athletes sur 61, et nuisible chez 5 — le cout d'une charge inutile est reel la ou son
-benefice ne l'est pas. `dose_response.py` mesure le verdict chez l'athlete
-qu'on a en face et distingue « non detectee » d'« indeterminable », parce que
-presenter une absence de mesure comme une absence d'effet est l'erreur que ce
-depot s'emploie a ne pas commettre. Aucun des verdicts n'autorise a maximiser
-une performance predite.
+**A plan says what it does not optimise.** The planner looks for the MINIMUM
+load that delivers the requested stimulus, not the maximum the constraints
+tolerate: under an unknown dose-response — it exists in 23 athletes out of 61,
+and is harmful in 5 — the cost of unnecessary load is real where its benefit
+is not. `dose_response.py` measures the verdict for the athlete at hand and
+distinguishes "not detected" from "undeterminable", because presenting an
+absence of measurement as an absence of effect is the mistake this repository
+works not to make. None of the verdicts authorises maximising a predicted
+performance.
 
-**Une borne de securite se mesure, et trois confonds l'attendent.**
-`cli validate-plan` confronte les bornes du planificateur a 6768 semaines
-reelles de 66 athletes : respect contre violation A L'INTERIEUR de chaque
-athlete, puis test du signe. Le plancher de retention (ACWR >= 0,8) en sort
-SOUTENU — +0,051 sigma, 37/55, p = 0,0145, detecte sans injection. Le plafond
-d'ACWR et celui des jours consecutifs en sortent INDETERMINABLES, plancher
-0,20 sigma. Trois pieges s'empilaient sur le chemin, et le protocole naif
-annoncait que respecter le plafond d'ACWR COUTAIT 0,333 sigma a p < 0,0001 :
-l'enveloppe, maximum glissant, a une variation mediane nulle a 28 jours ; un
-maximum glissant qui regarde en arriere englobe la semaine qu'on juge, donc
-l'effort dur de cette semaine entre dans sa propre issue ; et un maximum sur
-plus de tirages est plus grand, les semaines a ACWR eleve etant suivies de
-5,2 sorties de plus. Toute regle est donc jugee sur DEUX statistiques — le
-meilleur effort et l'effort MEDIAN, insensible au nombre de tirages — et sur
-DEUX regimes, dont un qui exige un entrainement regulier AVANT la semaine
-jugee : un ACWR eleve est le plus souvent une reprise apres coupure, dont la
-fenetre de reference est deprimee. Une regle qui ne tient que sur une des
-quatre lignes ne tient pas.
+**A safety bound is measured, and three confounders await it.**
+`cli validate-plan` confronts the planner's bounds with 6,768 real weeks from
+66 athletes: compliance versus violation WITHIN each athlete, then a sign test.
+The retention floor (ACWR >= 0.8) comes out SUPPORTED — +0.051 sigma, 37/55,
+p = 0.0145, detected without injection. The ACWR ceiling and the
+consecutive-days ceiling come out UNDETERMINABLE, floor 0.20 sigma. Three traps
+were stacked on the way, and the naive protocol claimed that respecting the
+ACWR ceiling COST 0.333 sigma at p < 0.0001: the envelope, a rolling maximum,
+has a median change of zero over 28 days; a backward-looking rolling maximum
+includes the week being judged, so that week's hard effort enters its own
+outcome; and a maximum over more draws is larger, high-ACWR weeks being
+followed by 5.2 more rides. Every rule is therefore judged on TWO statistics —
+best effort and MEDIAN effort, insensitive to the number of draws — and on TWO
+regimes, one of which requires regular training BEFORE the judged week: a high
+ACWR is most often a return after a break, whose reference window is depressed.
+A rule that holds on only one of the four rows does not hold.
 
-**Un cas isole se juge contre un taux de base.** Cinq athletes sur
-soixante-et-un voient la charge degrader leur prevision. Aucun artefact n'y a
-ete etabli : trous de donnees, ruptures de niveau et ruptures d'echelle ont ete
-compares a la DISTRIBUTION de la meme statistique chez les 23 detectes, et
-quatre des cinq restent dans l'etendue. Sans groupe de comparaison, n'importe
-quelle valeur a l'air suspecte. L'hypothese mecaniste la plus naturelle — une
-charge qui tend fait extrapoler le modele vers le haut — est REFUTEE : le biais
-median vaut -0,045 sigma, 27 athletes sur 61 sont surestimes, et
-rho(biais, gain) = -0,018 sur 61 sujets. Ce qui gouverne le score est
-l'amplitude de l'erreur, pas son signe.
+**An isolated case is judged against a base rate.** Five athletes out of
+sixty-one see load degrade their forecast. No artefact was established there:
+data gaps, level breaks and scale breaks were compared with the DISTRIBUTION of
+the same statistic among the 23 detected, and four of the five stay within the
+range. Without a comparison group, any value looks suspicious. The most natural
+mechanistic hypothesis — a trending load makes the model extrapolate upward —
+is REFUTED: median bias is −0.045 sigma, 27 athletes out of 61 are
+overestimated, and rho(bias, gain) = −0.018 on 61 subjects. What governs the
+score is the magnitude of the error, not its sign.
 
-**Un plan degrade ne se lit pas comme un plan optimal.** `optimize_week`
-retombait silencieusement sur l'heuristique des qu'une contrainte rendait le
-probleme infaisable. `WeeklyPlan.notes` porte desormais ce qui n'a pas ete
-applique — plancher rabaisse, stimulus abandonne, borne aigu/chronique
-inactive faute d'historique — et `xai_report` le publie. Une borne
-silencieusement inactive est pire qu'une borne absente.
+**A degraded plan does not read as an optimal plan.** `optimize_week` silently
+fell back on the heuristic as soon as a constraint made the problem infeasible.
+`WeeklyPlan.notes` now records what was not applied — floor lowered, stimulus
+dropped, acute/chronic bound inactive for lack of history — and `xai_report`
+publishes it. A silently inactive bound is worse than an absent one.
 
-**Une charge doit disputer le signal au passage du temps.** Un premier
-ajustement hierarchique laissait tau1 fuir a 127 jours, soit 4,6 ecarts-types
-au-dela de son prior : a cette constante, la charge cumulee EST une tendance,
-et le gain mesurait l'une en croyant mesurer l'autre. Tout modele de charge
-porte donc un terme de tendance concurrent — il n'est pas la pour ameliorer
-l'ajustement mais pour le lui disputer.
+**Load must compete with the passage of time for the signal.** A first
+hierarchical fit let tau1 escape to 127 days, 4.6 standard deviations beyond
+its prior: at that constant, cumulative load IS a trend, and the gain measured
+one while believing it measured the other. Every load model therefore carries a
+competing trend term — not to improve the fit but to contest it.
 
-**Un seuil ne se recopie pas.** `readiness.py` annonce quand chaque capacite
-devient disponible — 28 jours pour la borne aigu/chronique, trois mesures pour
-l'enveloppe, huit plis pour le verdict. Chacun est celui qu'une fonction impose
-vraiment, et les comptages passent par ces fonctions (`horizon_splits`,
-`rolling_envelope`) plutot que de les reimplementer. Un seuil recopie derive le
-jour ou la fonction change, et l'echelle devient un mensonge rassurant : un
-test echoue si les deux divergent. Meme regle pour le prior de population, lu
-dans l'artefact de cohorte et jamais ecrit en dur.
+**A threshold is not copied.** `readiness.py` announces when each capability
+becomes available — 28 days for the acute/chronic bound, three measurements for
+the envelope, eight folds for the verdict. Each is the one a function actually
+imposes, and the counts go through those functions (`horizon_splits`,
+`rolling_envelope`) rather than reimplementing them. A copied threshold drifts
+the day the function changes, and the ladder becomes a reassuring lie: a test
+fails if the two diverge. Same rule for the population prior, read from the
+cohort artifact and never hard-coded.
 
-**Les tests n'ecrivent jamais dans `data/`.** Une fixture autouse le verifie
-apres chaque test et echoue sinon. Le module de sensibilite ne deroge pas :
-l'enveloppe perturbee n'existe qu'en memoire, et l'interface ne rend que des
-statistiques — jamais une serie qu'on pourrait ecrire et confondre plus tard
-avec une mesure.
+**Tests never write to `data/`.** An autouse fixture checks it after every test
+and fails otherwise. The sensitivity module is no exception: the perturbed
+envelope exists only in memory, and the interface returns only statistics —
+never a series that could be written and later mistaken for a measurement.
 
-## Organisation
+## Layout
 
 ```
-README.md                presentation du projet
-docs/resultats.md        journal complet des mesures
-docs/methode.md          protocoles, limites, garde-fous
-docs/architecture.md     modules, flux, mise en route
+README.md                project presentation
+docs/results.md          full log of measurements
+docs/method.md           protocols, what is missing, safeguards
+docs/architecture.md     modules, data flow, getting started
 
-src/config.py            configuration unique, mise en cache
-src/ingestion/           acces au jeu de donnees public (cache-first, md5)
-src/layer_a_signal/      nettoyage, features, base de temps, performance
-src/layer_b_twin/        modele de charge, modele bayesien,
-                         mise en commun hierarchique des athletes
-src/layer_c_planner/     contraintes de securite, optimiseur, parsing LLM,
-                         verdict de dose-reponse par athlete
-src/pipeline/            orchestrateur et provenance
-src/evaluation/          metriques, references, validation, rapport,
-                         modeles de fondation, sensibilite, cohorte, maturite,
-                         confrontation des regles du plan aux donnees,
-                         predicteurs de la reponse a la charge
-app/                     tableau de bord Streamlit
+src/config.py            single configuration, cached
+src/ingestion/           access to the public dataset (cache-first, md5)
+src/layer_a_signal/      cleaning, features, timebase, performance
+src/layer_b_twin/        load model, Bayesian model,
+                         hierarchical pooling of athletes
+src/layer_c_planner/     safety constraints, optimiser, LLM parsing,
+                         per-athlete dose-response verdict
+src/pipeline/            orchestrator and provenance
+src/evaluation/          metrics, baselines, validation, report,
+                         foundation models, sensitivity, cohort, readiness,
+                         plan rules against data,
+                         predictors of the response to load
+app/                     Streamlit dashboard
 ```
 
-## Commandes
+## Commands
 
 ```bash
 pip install -e ".[dev]"
-python -m src.cli ingest        # construire les artefacts
-python -m src.cli calibrate     # reporter les estimations dans params.yaml
-python -m src.cli evaluate      # cinq protocoles, planchers, provenance
-python -m src.cli cohort        # replication sur le cache d'athletes
-python -m src.cli fetch-athletes --critere velo|course   # elargir le cache
-python -m src.cli plan          # semaine proposee, et ce qu'elle ne promet pas
-python -m src.cli validate-plan # ce que les bornes du plan valent face aux donnees
-python -m src.cli responders    # qui repond, teste hors echantillon
-python -m src.cli pool          # ajustement hierarchique (lent : des heures)
-python -m src.cli pool --decrire               # la cible seule, en minutes
-python -m src.cli pool --fenetre 21            # contester les constantes de temps
-python -m src.cli pool --exclure UUID,UUID     # controler la composition de la cohorte
-pytest                          # hors ligne par defaut
+python -m src.cli ingest        # build the artifacts
+python -m src.cli calibrate     # write estimates to params.yaml
+python -m src.cli evaluate      # five protocols, floors, provenance
+python -m src.cli cohort        # replication on the athlete cache
+python -m src.cli fetch-athletes --critere velo|course   # grow the cache
+python -m src.cli plan          # proposed week, and what it does not promise
+python -m src.cli validate-plan # what the plan's bounds are worth against data
+python -m src.cli responders    # who responds, tested out of sample
+python -m src.cli pool          # hierarchical fit (slow: hours)
+python -m src.cli pool --decrire               # the target only, in minutes
+python -m src.cli pool --fenetre 21            # challenge the time constants
+python -m src.cli pool --exclure UUID,UUID     # control cohort composition
+pytest                          # offline by default
 
-pip install -e ".[tsfm]"        # torch + Chronos-2 + TTM, optionnels
+pip install -e ".[tsfm]"        # torch + Chronos-2 + TTM, optional
 python -m src.cli evaluate --models chronos2,ttm
 ruff check src app tests
 streamlit run app/main_dashboard.py
@@ -261,19 +257,20 @@ streamlit run app/main_dashboard.py
 
 ## Documentation
 
-`README.md` est la presentation du projet, pour un lecteur qui le decouvre :
-concis, et aucun chiffre qui ne soit reproductible par une commande. Le
-journal complet des mesures vit dans `docs/resultats.md`, les protocoles et
-garde-fous dans `docs/methode.md`, l'architecture dans
-`docs/architecture.md`. Un resultat nouveau s'ecrit dans `docs/`, et ne
-remonte au README que s'il change ce que le projet conclut.
+Documentation is written in English. `README.md` is the project presentation,
+for a reader discovering it: concise, result first, and no number that a
+command cannot reproduce. The full log of measurements lives in
+`docs/results.md`, protocols, gaps and safeguards in `docs/method.md`, the
+architecture in `docs/architecture.md`. A new result is written in `docs/`, and
+only moves up to the README if it changes what the project concludes. A
+limitation is stated as the data or condition that would lift it.
 
 ## Style
 
-Commentaires et docstrings en francais, en expliquant **pourquoi** plutot que
-**quoi**. Un commentaire qui paraphrase le code suivant ne sert a rien ; un
-commentaire qui explique pourquoi un seuil vaut 42 plutot que 30, ou pourquoi
-une garde existe, evite qu'on le defasse six mois plus tard.
+Code comments and docstrings stay in French, as do CLI and dashboard output,
+explaining **why** rather than **what**. A comment that paraphrases the
+following code is useless; a comment that explains why a threshold is 42 rather
+than 30, or why a guard exists, prevents it from being undone six months later.
 
-Messages de commit a l'imperatif, corps explicatif quand le changement n'est
-pas evident. Pas de sections normalisees ni d'emojis de statut.
+Commit messages in the imperative, with an explanatory body when the change is
+not obvious. No standardised sections or status emojis.

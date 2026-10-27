@@ -941,7 +941,7 @@ def cmd_responders(args, cfg: Config) -> int:
     # au premier jour : elle merite d'etre annoncee, et son absence aussi.
     if any(s.separates for s in separations):
         print("\nUne famille de predicteurs separe les repondeurs — relire "
-              "`docs/resultats.md` avant d'en tirer parti.", file=sys.stderr)
+              "`docs/results.md` avant d'en tirer parti.", file=sys.stderr)
     return 0
 
 

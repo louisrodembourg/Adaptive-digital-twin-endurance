@@ -148,7 +148,7 @@ def acute_chronic_ratio(daily_load: pd.DataFrame, acute_days: int = 7,
 # rien ».
 #
 # Le total `trimp` reste la colonne de reference et n'est pas touche : les
-# six lignes publiees dans docs/resultats.md en dependent et doivent rester
+# six lignes publiees dans docs/results.md en dependent et doivent rester
 # reproductibles au chiffre pres.
 
 SPORT_FAMILIES: dict[str, tuple[str, ...]] = {

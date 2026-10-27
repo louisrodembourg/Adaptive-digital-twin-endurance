@@ -79,7 +79,7 @@ def test_a_missing_discipline_is_not_a_crash():
 def test_the_channels_sum_exactly_to_the_total():
     """
     Le total reste la colonne de reference : les six lignes publiees dans
-    docs/resultats.md en
+    docs/results.md en
     dependent. Si les canaux ne sommaient pas au total, l'un des deux
     mentirait.
     """
@@ -149,7 +149,7 @@ def test_the_historical_path_is_numerically_untouched():
     """
     LE test de non-regression. `banister_predictor` a ete generalise ; appele
     sans `load_columns` il doit produire exactement les memes nombres, sinon
-    les six lignes publiees dans docs/resultats.md deviennent fausses sans
+    les six lignes publiees dans docs/results.md deviennent fausses sans
     prevenir.
     """
     daily = _daily()

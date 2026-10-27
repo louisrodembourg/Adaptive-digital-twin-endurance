@@ -1,8 +1,8 @@
-# Architecture et mise en route
+# Architecture and getting started
 
-Les modules, le flux de données, et les commandes.
+The modules, the data flow, and the commands.
 
-Présentation courte : [README](../README.md).
+Short presentation: [README](../README.md).
 
 ---
 
@@ -10,12 +10,12 @@ Présentation courte : [README](../README.md).
 
 ```mermaid
 flowchart TB
-    OSF[("GoldenCheetah OpenData<br/>6 614 athlètes")]
+    OSF[("GoldenCheetah OpenData<br/>6,614 athletes")]
 
     subgraph A["Layer A — Signal"]
         direction LR
         ING["opendata.py<br/><i>cache-first, md5</i>"]
-        TB["timebase.py<br/><i>secondes réelles</i>"]
+        TB["timebase.py<br/><i>real seconds</i>"]
         FEAT["features.py<br/><i>TRIMP · EF · GAP</i>"]
         PERF["performance.py<br/><i>Riegel</i>"]
         ING --> TB --> FEAT --> PERF
@@ -23,53 +23,53 @@ flowchart TB
 
     subgraph P["Pipeline"]
         direction LR
-        PROV["provenance.py<br/><i>aucune donnée inventée<br/>ne peut passer pour mesurée</i>"]
+        PROV["provenance.py<br/><i>no invented data<br/>can pass as measured</i>"]
         ORCH["orchestrator.py<br/><i>ingest → clean → featurize</i>"]
         PROV --> ORCH
     end
 
-    subgraph STORE["Artefacts"]
+    subgraph STORE["Artifacts"]
         direction LR
         S1[("sessions")]
         S2[("daily_load<br/><i>run · bike · other</i>")]
-        S3[("perf_observations<br/><i>+ index par durée</i>")]
+        S3[("perf_observations<br/><i>+ per-duration index</i>")]
     end
 
-    ENV["envelope.py<br/><i>enveloppe glissante<br/>grille jour ou observation</i>"]
+    ENV["envelope.py<br/><i>rolling envelope<br/>daily or observation grid</i>"]
 
-    subgraph B["Layer B — Jumeau"]
+    subgraph B["Layer B — Twin"]
         direction LR
-        LOAD["load_model.py<br/><i>CTL · ATL · fraîcheur<br/>courbes par discipline</i>"]
+        LOAD["load_model.py<br/><i>CTL · ATL · freshness<br/>per-discipline curves</i>"]
         BAYES["bayesian_model.py<br/><i>PyMC · convolution</i>"]
-        HIER["hierarchical.py<br/><i>mise en commun · 62 athlètes</i>"]
+        HIER["hierarchical.py<br/><i>pooling · 62 athletes</i>"]
         LOAD --> BAYES --> HIER
     end
 
-    subgraph E["Évaluation"]
+    subgraph E["Evaluation"]
         direction LR
-        BASE["baselines.py<br/><i>déclarées d'avance</i>"]
-        FND["foundation.py<br/><i>Chronos-2 · TTM<br/>ablation de covariable</i>"]
-        SENS["sensitivity.py<br/><i>plancher de détectabilité</i>"]
-        COH["cohort.py<br/><i>réplication · 61 athlètes</i>"]
-        VALID["validation.py<br/><i>blocs · horizon 28 j · par durée</i>"]
-        REPORT["report.py<br/><i>bootstrap apparié par blocs</i>"]
+        BASE["baselines.py<br/><i>declared in advance</i>"]
+        FND["foundation.py<br/><i>Chronos-2 · TTM<br/>covariate ablation</i>"]
+        SENS["sensitivity.py<br/><i>detectability floor</i>"]
+        COH["cohort.py<br/><i>replication · 61 athletes</i>"]
+        VALID["validation.py<br/><i>blocks · 28-day horizon · per duration</i>"]
+        REPORT["report.py<br/><i>paired block bootstrap</i>"]
         BASE --> VALID --> REPORT
         FND --> VALID
-        RULES["plan_rules.py<br/><i>bornes du plan · 6768 semaines</i>"]
-        RESP["responders.py<br/><i>qui répond · hors échantillon</i>"]
+        RULES["plan_rules.py<br/><i>plan bounds · 6,768 weeks</i>"]
+        RESP["responders.py<br/><i>who responds · out of sample</i>"]
         COH --> RESP
         REPORT --> SENS
         REPORT --> COH
     end
 
-    subgraph C["Layer C — Planificateur"]
+    subgraph C["Layer C — Planner"]
         direction LR
-        DOSE["dose_response.py<br/><i>verdict par athlète</i>"]
-        SAFE["safety_valve.py<br/><i>ACWR · VFC · taper</i>"]
-        OPT["optimizer.py<br/><i>CP-SAT · charge minimale<br/>suffisante</i>"]
+        DOSE["dose_response.py<br/><i>per-athlete verdict</i>"]
+        SAFE["safety_valve.py<br/><i>ACWR · HRV · taper</i>"]
+        OPT["optimizer.py<br/><i>CP-SAT · minimum<br/>sufficient load</i>"]
         SAFE --> OPT
         DOSE --> OPT
-        RULES -.->|"borne soutenue ou non"| SAFE
+        RULES -.->|"bound supported or not"| SAFE
     end
 
     UI["app/main_dashboard.py<br/><i>Streamlit · 5 pages</i>"]
@@ -90,39 +90,51 @@ flowchart TB
     class PROV,TB guard
 ```
 
+| layer | role |
+|---|---|
+| **A — Signal** | raw sessions → cleaned series on a real-seconds timebase → TRIMP, efficiency, grade-adjusted pace, performance observations |
+| **Pipeline** | orchestration and provenance: every session carries an explicit `DataSource` |
+| **B — Twin** | fitness-fatigue load curves per discipline, single-athlete Bayesian model, hierarchical pooling across athletes |
+| **Evaluation** | declared baselines, time-ordered validation, paired block bootstrap, detectability floors, cohort replication, safety-rule validation, responder prediction |
+| **C — Planner** | per-athlete dose-response verdict, safety bounds, CP-SAT optimiser looking for the minimum sufficient load |
+
 ---
 
-## Démarrage
+## Getting started
 
 ```bash
 pip install -e ".[dev]"
 
-python -m src.cli fetch-athletes --critere course --keep 3   # trouver un sujet
-python -m src.cli ingest                    # construire les trois artefacts
-python -m src.cli calibrate                 # reporter les estimations
-python -m src.cli state                     # résumer ce qui existe
-python -m src.cli evaluate                  # cinq protocoles + planchers
-python -m src.cli cohort                    # répliquer sur le cache d'athlètes
-python -m src.cli plan                      # proposer une semaine, et ce qu'elle vaut
-python -m src.cli validate-plan             # confronter ses bornes aux données
-python -m src.cli responders                # qui répond, hors échantillon
-python -m src.cli pool                      # mise en commun hiérarchique (~2 h 30)
-python -m src.cli pool --decrire            # la cible seule, sans échantillonner
+python -m src.cli fetch-athletes --critere course --keep 3   # find a subject
+python -m src.cli ingest                    # build the three artifacts
+python -m src.cli calibrate                 # write estimates to params.yaml
+python -m src.cli state                     # summarise what exists
+python -m src.cli evaluate                  # five protocols + floors
+python -m src.cli cohort                    # replicate on the athlete cache
+python -m src.cli plan                      # propose a week, and what it is worth
+python -m src.cli validate-plan             # confront its bounds with data
+python -m src.cli responders                # who responds, out of sample
+python -m src.cli pool                      # hierarchical pooling (~2 h 30)
+python -m src.cli pool --decrire            # the target only, no sampling
 
 streamlit run app/main_dashboard.py
-pytest                                      # hors ligne par défaut
+pytest                                      # offline by default
 ```
 
-Les modèles de fondation sont en option, parce que `torch` pèse environ 2 Go
-et qu'aucun chiffre ci-dessus n'en a besoin pour être reproduit :
+Foundation models are optional, because `torch` weighs about 2 GB and no
+number in the main results needs it to be reproduced:
 
 ```bash
 pip install -e ".[tsfm]"
 python -m src.cli evaluate --models chronos2,ttm
 ```
 
-Ces commandes reproduisent **chaque chiffre publié** à partir d'un jeu
-de données public. C'est ce qui les rend vérifiables plutôt que déclaratives.
+These commands reproduce **every published number** from a public dataset.
+That is what makes them verifiable rather than declarative.
+
+The command-line interface and the dashboard speak French; flags such as
+`--critere`, `--fenetre`, `--exclure` and `--decrire` are the French words for
+criterion, window, exclude and describe.
 
 ---
 
@@ -131,16 +143,16 @@ de données public. C'est ce qui les rend vérifiables plutôt que déclaratives
 `pandas` · `numpy` · `scipy` · `pyarrow` · `PyMC` / `ArviZ` · `OR-Tools`
 CP-SAT · `Streamlit` · `Plotly` · `pytest` · `ruff`
 
-En option, pour les références à modèle de fondation : `torch` ·
+Optional, for the foundation-model baselines: `torch` ·
 `chronos-forecasting` · `granite-tsfm`.
 
-Côté évaluation, cinq protocoles sortent d'une seule commande : blocs
-positionnels, horizon calendaire, enveloppe par durée d'effort, cible vélo, et
-plancher de détectabilité.
+On the evaluation side, five protocols come out of a single command:
+positional blocks, calendar horizon, per-duration envelope, bike target, and
+detectability floor.
 
-Données : [GoldenCheetah OpenData](https://osf.io/6hfpz/), DOI
+Data: [GoldenCheetah OpenData](https://osf.io/6hfpz/), DOI
 [10.17605/OSF.IO/6HFPZ](https://doi.org/10.17605/OSF.IO/6HFPZ).
 
 ---
 
-*Projet personnel — Louis Rodembourg*
+*Personal project — Louis Rodembourg*
