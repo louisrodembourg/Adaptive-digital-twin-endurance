@@ -1,0 +1,32 @@
+{
+  "athlete_id": "gc-9e4573b1",
+  "generated_at": "2026-10-22T23:07:41",
+  "n_sessions": 917,
+  "n_perf_observations": 90,
+  "hr_max_estimated": 194.10027972028007,
+  "hr_rest_estimated": 61.61,
+  "reference_curve": {
+    "v_ref_ms": 3.505820045243888,
+    "t_ref_s": 1800.0,
+    "exponent": 0.07705317241907363,
+    "n_points": 5,
+    "r_squared": 0.9869576774214308,
+    "durations_s": [
+      300,
+      600,
+      1200,
+      1800,
+      2700,
+      3600
+    ]
+  },
+  "provenance": {
+    "n_total": 917,
+    "n_real": 917,
+    "n_synthetic": 0,
+    "sources": [
+      "opendata_osf"
+    ],
+    "is_trustworthy": true
+  }
+}

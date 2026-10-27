@@ -16,6 +16,7 @@ Les tests injectent une configuration isolee via `Config.with_paths(tmp)`.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, replace
 from datetime import date
 from functools import cache
@@ -26,6 +27,10 @@ import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "params.yaml"
+#: Remplace `paths.processed` quand elle est definie. Lue au chargement de la
+#: configuration, donc a poser AVANT le premier `load_config` (ou suivie de
+#: `clear_config_cache`).
+PROCESSED_ENV = "DIGITAL_TWIN_PROCESSED"
 
 # Coefficients de Banister pour le TRIMP exponentiel :
 #   TRIMP = duree_min * dHR * b * exp(c * dHR)
@@ -179,6 +184,12 @@ def _build(raw: dict[str, Any], path: Path) -> Config:
     def _p(key: str, default: str) -> Path:
         return root / p.get(key, default)
 
+    # La demo en ligne lit un instantane versionne au lieu de data/processed,
+    # qui ne l'est pas. Une variable d'environnement plutot qu'une cle de
+    # params.yaml : c'est le deploiement qui choisit, pas le depot.
+    processed = os.environ.get(PROCESSED_ENV)
+    processed = Path(processed) if processed else _p("processed", "data/processed")
+
     a, g, ds = raw["athlete"], raw["goal"], raw["data_source"]
     return Config(
         athlete=Athlete(
@@ -207,7 +218,7 @@ def _build(raw: dict[str, Any], path: Path) -> Config:
         paths=Paths(
             root=root / "data",
             raw=_p("raw", "data/raw"),
-            processed=_p("processed", "data/processed"),
+            processed=processed,
             cache=_p("cache", "data/cache"),
             traces=_p("traces", "data/processed/traces"),
         ),

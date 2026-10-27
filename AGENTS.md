@@ -229,6 +229,8 @@ src/evaluation/          metrics, baselines, validation, report,
                          plan rules against data,
                          predictors of the response to load
 app/                     Streamlit dashboard
+demo/processed/          frozen snapshot of real artifacts for the online
+                         demo; data/processed always takes precedence
 ```
 
 ## Commands

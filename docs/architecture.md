@@ -133,6 +133,10 @@ pip install -e ".[tsfm]"
 python -m src.cli evaluate --models chronos2,ttm
 ```
 
+Without `data/processed`, the dashboard reads the frozen snapshot in
+[`demo/processed`](../demo/README.md) — real artifacts from the public dataset —
+and says so in its sidebar. That is what the online demo serves.
+
 These commands reproduce **every published number** from a public dataset.
 That is what makes them verifiable rather than declarative.
 

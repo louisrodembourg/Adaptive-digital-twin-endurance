@@ -1,0 +1,35 @@
+{
+  "generated_at": "2026-10-24T19:39:49+00:00",
+  "packages": {
+    "torch": "2.11.0"
+  },
+  "models": {},
+  "target": {
+    "column": "pi",
+    "window_days": 42,
+    "min_periods": 3,
+    "n_days": 691,
+    "n_defined": 545,
+    "start": "2018-02-27",
+    "end": "2020-01-18",
+    "covariates": [
+      "trimp",
+      "fitness",
+      "fatigue"
+    ]
+  },
+  "protocols": {
+    "blocs": {
+      "n_splits": 5,
+      "n_points": 85
+    },
+    "horizon 28j": {
+      "horizon_days": 28,
+      "step_days": 28,
+      "min_train_days": 180,
+      "n_folds": 18,
+      "n_points": 545
+    }
+  },
+  "latency_seconds": {}
+}

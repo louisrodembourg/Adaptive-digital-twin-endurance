@@ -19,6 +19,8 @@ et non un graphique vide.
 
 from __future__ import annotations
 
+import json
+import os
 import sys
 from pathlib import Path
 
@@ -41,7 +43,7 @@ from src.cli import (
     RESPONDERS_CORR_FILE,
     RESULTS_FILE,
 )
-from src.config import ConfigError, load_config
+from src.config import PROCESSED_ENV, ConfigError, clear_config_cache, load_config
 from src.evaluation.cohort import detection_contrast
 from src.evaluation.readiness import assess_readiness
 from src.evaluation.report import BIKE_SPORTS, BIKE_TARGET_COLUMN, evaluate
@@ -53,12 +55,31 @@ from src.layer_a_signal.envelope import (
 )
 from src.layer_b_twin.load_model import acute_chronic_ratio, compute_load_curves
 from src.pipeline.orchestrator import (
+    SESSIONS_FILE,
     load_calibration,
     load_daily_load,
     load_perf_observations,
     load_sessions,
     provenance_of,
 )
+
+# Demo en ligne : data/ n'est pas versionne, donc un deploiement le trouve
+# vide. On bascule alors sur l'instantane de demo/processed — des artefacts
+# reels, produits par la CLI sur le jeu de donnees public — et la barre
+# laterale le DIT : une donnee figee ne doit pas passer pour une ingestion
+# fraiche. Ailleurs, data/processed garde toujours la main.
+DEMO_DIR = Path(__file__).resolve().parents[1] / "demo" / "processed"
+try:
+    if (not (load_config().paths.processed / SESSIONS_FILE).exists()
+            and (DEMO_DIR / SESSIONS_FILE).exists()):
+        os.environ[PROCESSED_ENV] = str(DEMO_DIR)
+        clear_config_cache()
+    # Compare au chemin resolu plutot qu'a un drapeau pose ci-dessus :
+    # Streamlit reexecute le script a chaque clic, la variable est alors deja
+    # posee et la branche ne se reprend pas.
+    EN_DEMO = load_config().paths.processed.resolve() == DEMO_DIR.resolve()
+except ConfigError:
+    EN_DEMO = False
 
 st.set_page_config(page_title="Digital Twin — Endurance", page_icon="🏃", layout="wide")
 
@@ -227,6 +248,18 @@ with st.sidebar:
         f"{pd.to_datetime(daily['date']).min():%b %Y} → "
         f"{pd.to_datetime(daily['date']).max():%b %Y}"
     )
+    if EN_DEMO:
+        try:
+            produit = json.loads((DEMO_DIR / "evaluation_provenance.json").read_text())
+            produit = f" le {produit['generated_at'][:10]}"
+        except (OSError, KeyError, ValueError):
+            produit = ""
+        st.info(
+            "**Demo** — instantane des artefacts produits par la CLI"
+            f"{produit} sur GoldenCheetah OpenData (donnees reelles, publiques, "
+            "anonymisees). Rien n'est recalcule a l'ingestion ici ; "
+            "`python -m src.cli ingest` le regenere en local."
+        )
     st.divider()
     page = st.radio(
         "Page",
