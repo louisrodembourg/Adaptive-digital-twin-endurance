@@ -1,16 +1,16 @@
-# Notebooks — exploration initiale
+# Notebooks — initial exploration
 
-Les deux premiers pas du projet, datés de février 2026 : décodage de fichiers
-`.fit` avec le SDK Garmin, puis construction des features de séance
-(découplage cardiaque, masque de course, efficience).
+The project's first two steps, dated February 2026: decoding `.fit` files with
+the Garmin SDK, then building session features (cardiac decoupling, running
+mask, efficiency).
 
-Ils sont conservés parce qu'ils montrent d'où part le projet. **Ils ne sont pas
-exécutables tels quels** : ils lisent deux fichiers `.fit` d'exemple qui ne sont
-pas versionnés, `data/` étant ignoré par git et surveillé par une fixture de
-test. Leurs imports, en revanche, résolvent toujours contre le code actuel.
+They are kept because they show where the project started. **They are not
+runnable as is**: they read two sample `.fit` files that are not versioned,
+`data/` being ignored by git and watched by a test fixture. Their imports,
+however, still resolve against the current code.
 
-Les sorties ont été retirées. Elles pesaient 1,2 Mo de figures Plotly, que
-l'aperçu de notebook de GitHub ne rend pas — ce poids n'achetait rien.
+Outputs were stripped. They weighed 1.2 MB of Plotly figures that GitHub's
+notebook preview does not render — that weight bought nothing.
 
-Ce que ces notebooks faisaient à la main vit maintenant dans
-`src/layer_a_signal/` et se lance par `python -m src.cli ingest`.
+What these notebooks did by hand now lives in `src/layer_a_signal/` and runs
+with `python -m src.cli ingest`. The notebooks themselves are in French.

@@ -47,6 +47,7 @@ vingt-six minutes.
 
 from __future__ import annotations
 
+import subprocess
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -54,6 +55,23 @@ import pandas as pd
 
 from ..layer_a_signal.envelope import EnvelopeSpec, rolling_envelope
 from .bayesian_model import HAS_PYMC, load_kernel
+
+
+def _cxx_is_clang(cxx: str) -> bool:
+    """
+    Sur macOS, `g++` est un alias de clang : le nom du binaire ne dit rien,
+    seule sa banniere de version le dit. Un compilateur introuvable n'est pas
+    clang — PyTensor retombera de lui-meme sur le mode Python.
+    """
+    if not cxx:
+        return False
+    try:
+        sortie = subprocess.run([cxx, "--version"], capture_output=True,
+                                text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return "clang" in (sortie.stdout + sortie.stderr).lower()
+
 
 if HAS_PYMC:
     import pymc as pm
@@ -67,8 +85,13 @@ if HAS_PYMC:
     # que c'est le module qui cree le graphe : l'utilisateur n'a pas a
     # connaitre cette limite, et un echec de compilation apres une heure
     # d'attente est le pire moment pour l'apprendre.
+    #
+    # Le drapeau n'existe que chez clang : g++ le rejette, et le poser sans
+    # condition cassait TOUTE compilation PyTensor sous Linux des l'import de
+    # ce module — la CI l'a montre sur trois tests du modele bayesien. g++ n'a
+    # pas cette limite, il n'a donc besoin de rien.
     _FLAG = "-fbracket-depth=4096"
-    if _FLAG not in pytensor.config.gcc__cxxflags:
+    if _cxx_is_clang(pytensor.config.cxx) and _FLAG not in pytensor.config.gcc__cxxflags:
         pytensor.config.gcc__cxxflags = (
             f"{pytensor.config.gcc__cxxflags} {_FLAG}".strip()
         )

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "digital-twin-endurance"
 version = "0.2.0"
-description = "Jumeau numerique d'entrainement d'endurance : ingestion de donnees publiques, modele de charge, et evaluation hors echantillon du modele fitness-fatigue"
+description = "Digital twin for endurance training: per-athlete load-performance modelling on public data, validated out of sample, driving a minimum-load training planner"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

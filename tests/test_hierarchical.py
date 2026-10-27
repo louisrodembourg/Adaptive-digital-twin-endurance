@@ -285,10 +285,22 @@ def test_the_compiler_nesting_limit_is_lifted():
     Au-dela d'une quarantaine d'athletes, PyTensor fusionne les expressions en
     une seule expression C que clang refuse : « bracket nesting level exceeded
     maximum of 256 ». Trouve en lancant l'ajustement sur 62 athletes, apres
-    une heure d'attente. Le module pose le drapeau lui-meme.
+    une heure d'attente. Le module pose le drapeau lui-meme — et seulement pour
+    clang, g++ le rejetant : le poser sans condition cassait toute compilation
+    PyTensor sous Linux.
     """
     pytensor = pytest.importorskip("pytensor")
-    assert "-fbracket-depth=" in pytensor.config.gcc__cxxflags
+    from src.layer_b_twin.hierarchical import _cxx_is_clang
+
+    pose = "-fbracket-depth=" in pytensor.config.gcc__cxxflags
+    assert pose == _cxx_is_clang(pytensor.config.cxx)
+
+
+def test_un_compilateur_introuvable_n_est_pas_clang():
+    from src.layer_b_twin.hierarchical import _cxx_is_clang
+
+    assert not _cxx_is_clang("")
+    assert not _cxx_is_clang("/chemin/qui/n/existe/pas/g++")
 
 
 def test_la_mesure_publiee_ecrit_sans_suffixe():

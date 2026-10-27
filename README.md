@@ -198,4 +198,4 @@ system measures the response per athlete rather than guessing it.
 | [**AGENTS.md**](AGENTS.md) | the repository's non-negotiable rules |
 
 Data: [GoldenCheetah OpenData](https://osf.io/6hfpz/) — public, anonymised, no
-GPS coordinates. License: MIT.
+GPS coordinates. License: [MIT](LICENSE).
