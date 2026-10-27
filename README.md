@@ -11,6 +11,13 @@ It ingests real sessions from a public dataset, turns them into a training
 load and a performance measure, fits physiological models, validates them out
 of sample on 61 athletes, and plans the next week accordingly.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/cohort_skill_dark.png">
+  <img alt="Out-of-sample skill gain of the load model for each of 61 athletes, with 95 % intervals: load helps for 23, inconclusive for 33, hurts for 5." src="docs/figures/cohort_skill_light.png">
+</picture>
+
+<sub>Reproduce with `python -m src.cli cohort` then `python docs/figures/make_figures.py`.</sub>
+
 ---
 
 ## Key results
