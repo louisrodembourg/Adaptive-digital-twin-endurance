@@ -57,7 +57,9 @@ flowchart TB
         FND --> VALID
         RULES["plan_rules.py<br/><i>plan bounds · 6,768 weeks</i>"]
         RESP["responders.py<br/><i>who responds · out of sample</i>"]
+        READY["readiness.py<br/><i>maturity ladder</i>"]
         COH --> RESP
+        COH --> READY
         REPORT --> SENS
         REPORT --> COH
     end
@@ -66,10 +68,12 @@ flowchart TB
         direction LR
         DOSE["dose_response.py<br/><i>per-athlete verdict</i>"]
         SAFE["safety_valve.py<br/><i>ACWR · HRV · taper</i>"]
+        LLM["llm_context_parser.py<br/><i>free-text constraints</i>"]
         OPT["optimizer.py<br/><i>CP-SAT · minimum<br/>sufficient load</i>"]
         SAFE --> OPT
         DOSE --> OPT
-        RULES -.->|"bound supported or not"| SAFE
+        LLM --> OPT
+        RULES -.->|"validates its bounds"| SAFE
     end
 
     UI["app/main_dashboard.py<br/><i>Streamlit · 5 pages</i>"]
@@ -86,7 +90,7 @@ flowchart TB
 
     classDef result fill:#16324f,stroke:#4c8bf5,stroke-width:2px,color:#fff
     classDef guard fill:#4a3620,stroke:#e0a355,stroke-width:2px,color:#fff
-    class REPORT,BAYES,FND,SENS,COH,HIER,RULES,RESP result
+    class REPORT,BAYES,FND,SENS,COH,HIER,RULES,RESP,READY result
     class PROV,TB guard
 ```
 
@@ -95,8 +99,8 @@ flowchart TB
 | **A — Signal** | raw sessions → cleaned series on a real-seconds timebase → TRIMP, efficiency, grade-adjusted pace, performance observations |
 | **Pipeline** | orchestration and provenance: every session carries an explicit `DataSource` |
 | **B — Twin** | fitness-fatigue load curves per discipline, single-athlete Bayesian model, hierarchical pooling across athletes |
-| **Evaluation** | declared baselines, time-ordered validation, paired block bootstrap, detectability floors, cohort replication, safety-rule validation, responder prediction |
-| **C — Planner** | per-athlete dose-response verdict, safety bounds, CP-SAT optimiser looking for the minimum sufficient load |
+| **Evaluation** | declared baselines, time-ordered validation, paired block bootstrap, detectability floors, cohort replication, safety-rule validation, responder prediction, maturity ladder |
+| **C — Planner** | per-athlete dose-response verdict, safety bounds, constraints parsed from free text, CP-SAT optimiser looking for the minimum sufficient load |
 
 ---
 
